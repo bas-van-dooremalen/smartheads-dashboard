@@ -1,24 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { db } from "@/app/lib/firebase";
+import { db } from "@/app/lib/firebaseClient";
 import {
-  addSiteToFirebase,
   deleteSiteFromFirebase,
-  updateSiteInFirebase,
 } from "@/app/lib/wpSites";
 import { collection, onSnapshot } from "firebase/firestore";
 import Card from "./Card";
 import Badge from "./Badge";
 import StaticModal from "./StaticModal";
+import { useAlertLog, AlertLogPanel, syncAlertsToLog } from "./AlertLog";
 
 // ─── Config ────────────────────────────────────────────────────────────────────
-const API_KEY =
-  process.env.NEXT_PUBLIC_WP_DASHBOARD_API_KEY ??
-  "f9e1c4b7a3d8f0c2e6b1a9d4f7c3e8a1b6d9f2c4e7a0b3d5f8c1e4a7b2d9f3c6e1a4b7d0f2c9e5a1d4b8f0c3e6a9d2f5b1c7e4a0f8d3";
-
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-const FETCH_TIMEOUT_MS    = 60_000;
 const PAGE_SIZE           = 7;
 const SLIDE_INTERVAL_MS   = 8_500;
 const SSL_WARN_DAYS       = 30;
@@ -120,20 +114,35 @@ function getUpdateCount(site: WpSite): number {
   return count;
 }
 
-async function fetchSiteData(domain: string): Promise<WpSiteData | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(
-      `https://${domain}/wp-json/dashboard/v1/updates?key=${API_KEY}&_=${Date.now()}`,
-      { signal: controller.signal }
-    );
-    return await res.json();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
+type RefreshResult = "ok" | "unauthorized" | "error";
+
+async function triggerRefreshAll(adminKey: string | null): Promise<RefreshResult> {
+  const res = await fetch("/api/internal/wp-refresh", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(adminKey ? { authorization: `Bearer ${adminKey}` } : {}),
+    },
+    body: JSON.stringify({ refreshAll: true }),
+  });
+  if (res.status === 401) return "unauthorized";
+  return res.ok ? "ok" : "error";
+}
+
+async function triggerRefreshDomainWithAuth(
+  domain: string,
+  adminKey: string | null
+): Promise<RefreshResult> {
+  const res = await fetch("/api/internal/wp-refresh", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(adminKey ? { authorization: `Bearer ${adminKey}` } : {}),
+    },
+    body: JSON.stringify({ domain }),
+  });
+  if (res.status === 401) return "unauthorized";
+  return res.ok ? "ok" : "error";
 }
 
 function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
@@ -359,7 +368,7 @@ function CriticalAlertsPanel({ alerts }: { alerts: CriticalAlert[] }) {
           {alerts.map((alert, i) => {
             const cfg = alertConfig[alert.type];
             return (
-              <a 
+              <a
                 key={i}
                 href={`https://${alert.domain}/wp-admin`}
                 target="_blank"
@@ -399,14 +408,19 @@ function PaginatedTable({
 }) {
   const totalPages = Math.ceil(sites.length / PAGE_SIZE);
   const [page, setPage]     = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(true);
   const [visible, setVisible] = useState(true);
   const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const pageRef   = useRef(page);
-  pageRef.current = page;
 
-  // Reset to first page when sites list changes (filter/sort)
-  useEffect(() => { setPage(0); }, [sites]);
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setPage(0), 0);
+    return () => clearTimeout(t);
+  }, [sites]);
 
   const fadeTo = useCallback((next: number) => {
     setVisible(false);
@@ -416,7 +430,6 @@ function PaginatedTable({
     }, 300);
   }, []);
 
-  // Auto-slide interval
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (totalPages <= 1 || paused) return;
@@ -429,7 +442,6 @@ function PaginatedTable({
   const goTo = (p: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
     fadeTo(p);
-    // Restart auto-slide after manual nav (only if not paused)
     if (!paused && totalPages > 1) {
       timerRef.current = setInterval(() => {
         fadeTo((pageRef.current + 1) % totalPages);
@@ -441,7 +453,6 @@ function PaginatedTable({
 
   return (
     <div className="flex flex-col flex-1 min-w-0">
-      {/* Table with fade transition */}
       <div
         className="overflow-x-auto transition-opacity duration-300"
         style={{ opacity: visible ? 1 : 0 }}
@@ -583,7 +594,6 @@ function PaginatedTable({
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
 
-            {/* Auto-slide pause/play toggle */}
             <button
               onClick={() => setPaused((p) => !p)}
               aria-label={paused ? "Hervat auto-slide" : "Pauzeer auto-slide"}
@@ -594,13 +604,9 @@ function PaginatedTable({
               }`}
             >
               {paused ? (
-                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
-                  <polygon points="5 3 19 12 5 21 5 3" />
-                </svg>
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
               ) : (
-                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
-                </svg>
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
               )}
               {paused ? "paused" : "auto"}
             </button>
@@ -626,7 +632,15 @@ export default function SmartWpWidget() {
   const [healthModal, setHealthModal]   = useState<string | null>(null);
   const [offlineModal, setOfflineModal] = useState<string | null>(null);
   const [lastSync, setLastSync]         = useState<Date | null>(null);
+  const [showLog, setShowLog]           = useState(false);
+  const [adminKey, setAdminKey]         = useState<string | null>(null);
+  const [showAdminKeyModal, setShowAdminKeyModal] = useState(false);
+  const pendingRefreshRef = useRef<null | { kind: "all" } | { kind: "domain"; domain: string }>(null);
 
+  // ─── Alert Log ──────────────────────────────────────────────────────────────
+  const { log, addEntry, resolveEntry, clearLog } = useAlertLog();
+
+  // ─── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -634,12 +648,23 @@ export default function SmartWpWidget() {
         setDeleteConfirm(null);
         setHealthModal(null);
         setOfflineModal(null);
+        setShowAdminKeyModal(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("wp_refresh_admin_key");
+      if (v) setAdminKey(v);
+    } catch {
+      // Ignore.
+    }
+  }, []);
+
+  // ─── Firebase realtime sync ──────────────────────────────────────────────────
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "wpSites"), (snapshot) => {
       const sitesData = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Omit<WpSite, "id">) }));
@@ -649,33 +674,48 @@ export default function SmartWpWidget() {
     return () => unsubscribe();
   }, []);
 
+  // ─── Refresh all sites ───────────────────────────────────────────────────────
   const refreshAllSites = useCallback(async () => {
     if (!sites.length) return;
     setLoading(true);
-    await Promise.all(sites.map(async (s) => {
-      const data = await fetchSiteData(s.domain);
-      await updateSiteInFirebase(s.id, data);
-    }));
+    try {
+      const result = await triggerRefreshAll(adminKey);
+      if (result === "unauthorized") {
+        pendingRefreshRef.current = { kind: "all" };
+        setShowAdminKeyModal(true);
+      }
+    } finally {
+      // UI state updates via Firestore realtime snapshot.
+    }
     setLoading(false);
-  }, [sites]);
+  }, [sites, adminKey]);
 
   useEffect(() => {
     const interval = setInterval(refreshAllSites, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [refreshAllSites]);
 
+  // ─── Add site ────────────────────────────────────────────────────────────────
   async function handleAddSite() {
     const trimmed = input.trim();
     if (!trimmed) { setInputError(true); setTimeout(() => setInputError(false), 500); return; }
-    const domain = trimmed.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const domain = trimmed.replace(/^https?:\/\//, "").split("/")[0]?.replace(/\/$/, "") ?? "";
     if (sites.find((s) => s.domain === domain)) return;
     setLoading(true);
-    const data = await fetchSiteData(domain);
-    await addSiteToFirebase(domain, data);
-    setInput("");
+    const result = await triggerRefreshDomainWithAuth(domain, adminKey);
+    if (result === "ok") {
+      setInput("");
+    } else if (result === "unauthorized") {
+      pendingRefreshRef.current = { kind: "domain", domain };
+      setShowAdminKeyModal(true);
+    } else {
+      setInputError(true);
+      setTimeout(() => setInputError(false), 500);
+    }
     setLoading(false);
   }
 
+  // ─── Processed sites ─────────────────────────────────────────────────────────
   const processedSites = useMemo(() => {
     return sites
       .filter((s) => {
@@ -696,11 +736,66 @@ export default function SmartWpWidget() {
 
   const criticalAlerts = useMemo(() => buildCriticalAlerts(sites), [sites]);
 
+  // ─── Sync alerts → log ───────────────────────────────────────────────────────
+  useEffect(() => {
+    syncAlertsToLog(criticalAlerts, log, addEntry);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [criticalAlerts]);
+
   const httpErrorSites = useMemo(() => sites.filter((s) => s.lastData?.http_health?.has_errors).length, [sites]);
   const sslErrorSites  = useMemo(() => sites.filter((s) => s.lastData?.ssl?.status === "critical" || s.lastData?.ssl?.status === "error").length, [sites]);
 
+  // Aantal onopgeloste log-entries voor de badge op de knop
+  const unresolvedLogCount = useMemo(() => log.filter((e) => !e.resolvedAt).length, [log]);
+
   return (
     <Card className="col-span-full border-white/5 bg-neutral-900/20">
+
+      {/* Admin Key Modal */}
+      {showAdminKeyModal && (
+        <div className="fixed inset-0 z-[30000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md" onClick={() => setShowAdminKeyModal(false)}>
+          <div className="bg-neutral-950 border border-white/10 p-8 rounded-[2.5rem] max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h4 className="text-xl font-black text-white italic uppercase tracking-tighter mb-2">Admin key nodig</h4>
+            <p className="text-neutral-500 text-xs font-mono mb-6 uppercase tracking-[0.2em] leading-relaxed">Voor refresh/add in productie is een key vereist.</p>
+            <input
+              type="password"
+              value={adminKey ?? ""}
+              onChange={(e) => setAdminKey(e.target.value)}
+              placeholder="DASHBOARD_ADMIN_KEY"
+              className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3 text-sm text-[#20d67b] font-mono focus:outline-none focus:border-[#20d67b]/50 transition-all"
+            />
+            <div className="grid grid-cols-2 gap-4 mt-6">
+              <button onClick={() => setShowAdminKeyModal(false)} className="px-6 py-4 rounded-2xl bg-white/5 text-neutral-400 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all">Abort</button>
+              <button
+                onClick={async () => {
+                  try {
+                    if (adminKey) localStorage.setItem("wp_refresh_admin_key", adminKey);
+                  } catch {
+                    // Ignore.
+                  }
+                  setShowAdminKeyModal(false);
+                  const pending = pendingRefreshRef.current;
+                  pendingRefreshRef.current = null;
+                  if (!pending) return;
+                  setLoading(true);
+                  try {
+                    if (pending.kind === "all") {
+                      await triggerRefreshAll(adminKey);
+                    } else {
+                      await triggerRefreshDomainWithAuth(pending.domain, adminKey);
+                    }
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                className="px-6 py-4 rounded-2xl bg-[#20d67b] text-black text-xs font-black uppercase tracking-widest hover:opacity-90 transition-all"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation */}
       {deleteConfirm && (
@@ -756,10 +851,32 @@ export default function SmartWpWidget() {
 
           <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto">
             {lastSync && <span className="text-xs text-neutral-500 ml-2">Last sync: {lastSync.toLocaleTimeString()}</span>}
+
+            {/* Alert Log toggle button */}
+            <button
+              onClick={() => setShowLog((v) => !v)}
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-2xl border text-xs font-black uppercase tracking-wider transition-all ${
+                showLog
+                  ? "bg-[#20d67b]/10 border-[#20d67b]/30 text-[#20d67b]"
+                  : "bg-white/5 border-white/5 text-neutral-400 hover:border-white/20 hover:text-white"
+              }`}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+              </svg>
+              Alert Log
+              {unresolvedLogCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center">
+                  {unresolvedLogCount > 9 ? "9+" : unresolvedLogCount}
+                </span>
+              )}
+            </button>
+
             <button onClick={refreshAllSites} disabled={loading} className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/5 text-neutral-400 text-xs font-black uppercase tracking-wider hover:border-white/20 hover:text-white transition-all disabled:opacity-40">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={loading ? "animate-spin" : ""}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               {loading ? "Syncing..." : "Refresh"}
             </button>
+
             <div className="flex items-center bg-black/40 rounded-2xl p-1.5 border border-white/5">
               <button onClick={() => setLayout("grid")} aria-label="Grid layout" className={`p-2.5 rounded-xl transition-all ${layout === "grid" ? "bg-white/10 text-[#20d67b]" : "text-neutral-600 hover:text-neutral-400"}`}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
@@ -772,6 +889,7 @@ export default function SmartWpWidget() {
                 Sort: <span className="text-[#20d67b]">{sortBy}</span>
               </button>
             </div>
+
             <div className="flex gap-2 flex-1 xl:flex-none min-w-[260px]">
               <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSite()} placeholder="domein.nl"
                 className={`bg-black/40 border rounded-2xl px-5 py-3 text-sm text-[#20d67b] font-mono focus:outline-none transition-all flex-1 ${inputError ? "border-red-500 animate-shake" : "border-white/10 focus:border-[#20d67b]/50"}`}
@@ -863,6 +981,18 @@ export default function SmartWpWidget() {
           <CriticalAlertsPanel alerts={criticalAlerts} />
         </div>
       )}
+
+      {/* ─── Alert Log (inklapbaar onder het dashboard) ──────────────────────── */}
+      {showLog && (
+        <div className="mt-10">
+          <AlertLogPanel
+            log={log}
+            onResolve={resolveEntry}
+            onClear={clearLog}
+          />
+        </div>
+      )}
+
     </Card>
   );
 }

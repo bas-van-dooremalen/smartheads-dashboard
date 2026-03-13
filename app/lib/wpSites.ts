@@ -1,5 +1,5 @@
 import { collection, addDoc, getDocs, doc, deleteDoc, serverTimestamp, setDoc, updateDoc, getDoc } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "./firebaseClient";
 
 const wpSitesCollection = collection(db, "wpSites");
 

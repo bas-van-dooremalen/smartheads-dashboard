@@ -2,7 +2,7 @@
 /*
 Plugin Name: Smartheads Dashboard Update API
 Description: Beveiligde API voor Smartheads Dashboard om Core, Plugin, Theme status, HTTP health, SSL en offline history uit te lezen.
-Version: 3.0
+Version: 3.1
 Author: Bas / Smartheads
 */
 
@@ -14,8 +14,8 @@ define('SH_DASHBOARD_API_KEY',   'f9e1c4b7a3d8f0c2e6b1a9d4f7c3e8a1b6d9f2c4e7a0b3
 define('SH_MONITOR_POST_TYPES',  ['page', 'post']);
 define('SH_OFFLINE_LOG_MAX',     50);
 define('SH_SSL_CRITICAL_DAYS',   14);
-define('SH_HTTP_MAX_URLS',       50);   // Hogere limiet is nu veilig want async via cron
-define('SH_HTTP_TIMEOUT',        8);    // Seconden per individuele request
+define('SH_HTTP_MAX_URLS',       50);
+define('SH_HTTP_TIMEOUT',        8);
 define('SH_CRON_HOOK',           'sh_run_http_health_check');
 define('SH_CRON_INTERVAL',       'sh_every_30_minutes');
 
@@ -26,7 +26,6 @@ register_deactivation_hook(__FILE__, 'sh_plugin_deactivate');
 
 function sh_plugin_activate(): void {
     sh_schedule_cron();
-    // Trigger een eerste run direct bij activatie
     sh_run_and_cache_http_health();
 }
 
@@ -187,19 +186,14 @@ function sh_check_ssl(string $domain): array {
 }
 
 // ─── Async HTTP health check (via WP Cron) ────────────────────────────────────
-//
-// Deze functie draait NIET tijdens een API request, maar op de achtergrond
-// via WP Cron elke 30 minuten. Het resultaat wordt opgeslagen als wp_option
-// en door de API endpoint direct teruggegeven — zonder wachttijd.
 
 function sh_run_and_cache_http_health(): void {
     @set_time_limit(300);
 
-    $http_checks     = [];
-    $has_errors      = false;
-    $error_count     = 0;
+    $http_checks = [];
+    $has_errors  = false;
+    $error_count = 0;
 
-    // Verzamel alle te checken URLs
     $all_posts = get_posts([
         'post_type'      => SH_MONITOR_POST_TYPES,
         'post_status'    => 'publish',
@@ -223,9 +217,13 @@ function sh_run_and_cache_http_health(): void {
 
         $response = wp_remote_get($url, [
             'timeout'     => SH_HTTP_TIMEOUT,
-            'redirection' => 0,
-            'sslverify'   => true,
-            'user-agent'  => 'Smartheads-Dashboard-Monitor/3.0',
+            'redirection' => 5,        // Volg redirects — 301/302 zijn geen fouten
+            'sslverify'   => false,    // Blokkeer niet op SSL-waarschuwingen bij de check zelf
+            'user-agent'  => 'Smartheads-Dashboard-Monitor/3.1',
+            'headers'     => [
+                'Cache-Control' => 'no-cache',
+                'Pragma'        => 'no-cache',
+            ],
         ]);
 
         $response_time_ms = (int) round((microtime(true) - $start_time) * 1000);
@@ -237,7 +235,18 @@ function sh_run_and_cache_http_health(): void {
         } else {
             $status      = (int) wp_remote_retrieve_response_code($response);
             $status_text = wp_remote_retrieve_response_message($response);
-            $is_error    = ($status >= 400);
+
+            // ── Wat telt als echte fout ──────────────────────────────────────
+            // 5xx = serverfout          → altijd een echte fout
+            // 404 = pagina niet gevonden → echte fout (inhoud verdwenen)
+            // 403 = toegang geweigerd   → echte fout
+            // 0   = geen verbinding     → echte fout
+            // 301/302 → worden gevolgd (redirection: 5), tellen NIET als fout
+            // 200-299 → alles in orde
+            $is_error = ($status === 0)
+                     || ($status >= 500)
+                     || ($status === 404)
+                     || ($status === 403);
         }
 
         if ($is_error) {
@@ -282,7 +291,6 @@ function sh_run_and_cache_http_health(): void {
 
 function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Response {
 
-    // 1. Authenticatie
     if ($request->get_param('key') !== SH_DASHBOARD_API_KEY) {
         return new WP_REST_Response(['error' => 'Unauthorized', 'message' => 'Ongeldige API Key.'], 401);
     }
@@ -293,9 +301,8 @@ function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Res
 
     try {
 
-        // 2. Update checks (max 1x per 12 uur, forceer via ?force=1)
-        $force_check    = $request->get_param('force') === '1';
-        $last_check     = get_transient('sh_last_update_check');
+        $force_check = $request->get_param('force') === '1';
+        $last_check  = get_transient('sh_last_update_check');
 
         if ($force_check || false === $last_check) {
             wp_update_plugins();
@@ -345,12 +352,9 @@ function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Res
         }
 
         /* ---------- HTTP HEALTH (uit cache) ---------- */
-        // Resultaat van de cron job — altijd direct beschikbaar, nooit blocking.
-        // Als de cache leeg is (net geïnstalleerd), trigger een async cron run.
         $cached_http_health = get_option('sh_cached_http_health', null);
 
         if ($cached_http_health === null) {
-            // Eerste keer: plan een directe cron run en geef een lege placeholder terug
             wp_schedule_single_event(time(), SH_CRON_HOOK);
             $cached_http_health = [
                 'has_errors'      => false,
@@ -362,7 +366,7 @@ function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Res
             ];
         }
 
-        /* ---------- OFFLINE LOG (nieuwste eerst) ---------- */
+        /* ---------- OFFLINE LOG ---------- */
         $raw_log     = sh_get_offline_log();
         $offline_log = array_map(function(array $entry): array {
             $entry['date'] = date('Y-m-d H:i:s', $entry['timestamp']);
@@ -370,7 +374,6 @@ function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Res
         }, array_reverse($raw_log));
 
         /* ---------- SSL CHECK ---------- */
-        // SSL check is snel (< 1s), dus synchronous is prima
         $site_domain = parse_url(home_url(), PHP_URL_HOST);
         $ssl         = sh_check_ssl($site_domain);
 
