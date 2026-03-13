@@ -88,7 +88,7 @@ interface WpSite {
   lastWpFetchError?: string | null;
 }
 
-type FilterType = "all" | "core" | "plugins" | "themes" | "http" | "ssl";
+type FilterType = "all" | "core" | "plugins" | "themes" | "http" | "ssl" | "tls";
 type LayoutType = "grid" | "list";
 type SortType   = "name" | "updates";
 
@@ -96,7 +96,7 @@ interface CriticalAlert {
   siteId: string;
   siteName: string;
   domain: string;
-  type: "offline" | "http" | "ssl" | "offline_event";
+  type: "offline" | "http" | "ssl" | "tls" | "offline_event";
   label: string;
   detail: string;
 }
@@ -124,6 +124,23 @@ function offlineReason(site: WpSite): string {
   if (r.error) return r.error;
   if (r.statusCode !== null) return `HTTP ${r.statusCode}`;
   return "Site reageert niet";
+}
+
+function hasTlsProblem(site: WpSite): boolean {
+  const err = (site.lastWpFetchError ?? "").toLowerCase();
+  if (!err) return false;
+
+  return (
+    err.includes("unable_to_verify_leaf_signature".toLowerCase()) ||
+    err.includes("unable to verify the first certificate") ||
+    err.includes("unable to get local issuer certificate") ||
+    err.includes("cert_has_expired".toLowerCase()) ||
+    err.includes("err_tls_cert_altname_invalid".toLowerCase())
+  );
+}
+
+function tlsProblemDetail(site: WpSite): string {
+  return site.lastWpFetchError ?? "TLS probleem";
 }
 
 function getUpdateCount(site: WpSite): number {
@@ -164,6 +181,10 @@ function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
 
     if (!isOnline(site)) {
       alerts.push({ siteId: site.id, siteName: name, domain, type: "offline", label: "Offline", detail: offlineReason(site) });
+    }
+
+    if (isOnline(site) && hasTlsProblem(site)) {
+      alerts.push({ siteId: site.id, siteName: name, domain, type: "tls", label: "TLS probleem", detail: "Certificaatketen onvolledig" });
     }
 
     if (!site.lastData) continue;
@@ -215,6 +236,10 @@ const alertConfig: Record<CriticalAlert["type"], { color: string; bg: string; bo
   ssl: {
     color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20",
     icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+  },
+  tls: {
+    color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20",
+    icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a7 7 0 0 0-7 7v3H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1V9a7 7 0 0 0-7-7z"/><path d="M9 12V9a3 3 0 0 1 6 0v3"/></svg>,
   },
   offline_event: {
     color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20",
@@ -542,9 +567,14 @@ function PaginatedTable({
 
                 {/* Status */}
                 <td className="px-4 py-5 text-center">
-                  <span title={!isOnline(s) ? offlineReason(s) : undefined}>
-                    <Badge color={isOnline(s) ? "custom" : "red"}>{s.status ?? (isOnline(s) ? "online" : "offline")}</Badge>
-                  </span>
+                  <div className="flex flex-col items-center gap-1">
+                    <span title={!isOnline(s) ? offlineReason(s) : undefined}>
+                      <Badge color={isOnline(s) ? "custom" : "red"}>{s.status ?? (isOnline(s) ? "online" : "offline")}</Badge>
+                    </span>
+                    {hasTlsProblem(s) && (
+                      <span title={tlsProblemDetail(s)} className={badgeOrange}>TLS</span>
+                    )}
+                  </div>
                 </td>
 
                 {/* Acties */}
@@ -738,6 +768,7 @@ export default function SmartWpWidget() {
     return sites
       .filter((s) => {
         if (filter === "all")     return true;
+        if (filter === "tls")     return hasTlsProblem(s);
         if (!s.lastData)          return false;
         if (filter === "core")    return s.lastData.core?.needs_update;
         if (filter === "plugins") return s.lastData.plugins?.some((p) => p.needs_update);
@@ -762,6 +793,7 @@ export default function SmartWpWidget() {
 
   const httpErrorSites = useMemo(() => sites.filter((s) => s.lastData?.http_health?.has_errors).length, [sites]);
   const sslErrorSites  = useMemo(() => sites.filter((s) => s.lastData?.ssl?.status === "critical" || s.lastData?.ssl?.status === "error").length, [sites]);
+  const tlsIssueSites  = useMemo(() => sites.filter((s) => hasTlsProblem(s)).length, [sites]);
 
   // Aantal onopgeloste log-entries voor de badge op de knop
   const unresolvedLogCount = useMemo(() => log.filter((e) => !e.resolvedAt).length, [log]);
@@ -871,6 +903,10 @@ export default function SmartWpWidget() {
                 SSL
                 {sslErrorSites > 0 && <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${filter === "ssl" ? "bg-white text-red-500" : "bg-red-500 text-white"}`}>{sslErrorSites}</span>}
               </button>
+              <button onClick={() => setFilter("tls")} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border flex items-center gap-2 ${filter === "tls" ? "bg-orange-500 text-white border-orange-500" : tlsIssueSites > 0 ? "bg-orange-500/10 text-orange-400 border-orange-500/30 hover:border-orange-500/50" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>
+                TLS
+                {tlsIssueSites > 0 && <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${filter === "tls" ? "bg-white text-orange-500" : "bg-orange-500 text-white"}`}>{tlsIssueSites}</span>}
+              </button>
             </div>
           </div>
 
@@ -961,6 +997,7 @@ export default function SmartWpWidget() {
                       </div>
                     )}
                     <Badge color="custom">{s.status ?? "online"}</Badge>
+                    {hasTlsProblem(s) && <span title={tlsProblemDetail(s)} className={badgeOrange}>TLS</span>}
                     {s.lastData.ssl && <SslBadge ssl={s.lastData.ssl} />}
                   </div>
                   <div className="flex flex-wrap gap-2">
