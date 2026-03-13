@@ -143,6 +143,31 @@ function tlsProblemDetail(site: WpSite): string {
   return site.lastWpFetchError ?? "TLS probleem";
 }
 
+function isTlsReason(reason: string): boolean {
+  const r = (reason ?? "").toLowerCase();
+  if (!r) return false;
+  return (
+    r.includes("unable_to_verify_leaf_signature".toLowerCase()) ||
+    r.includes("unable to verify the first certificate") ||
+    r.includes("unable to get local issuer certificate") ||
+    r.includes("ssl certificate problem") ||
+    r.includes("certificate") ||
+    r.includes("curl error 60")
+  );
+}
+
+function isTlsOfflineEvent(e: OfflineEvent): boolean {
+  return e.status_code === 0 && isTlsReason(e.reason);
+}
+
+type WpApiState = "ok" | "tls" | "error" | "unknown";
+function getWpApiState(site: WpSite): { state: WpApiState; label: string; detail?: string } {
+  if (site.lastWpFetchOk === true) return { state: "ok", label: "WP API OK" };
+  if (hasTlsProblem(site)) return { state: "tls", label: "WP API TLS", detail: tlsProblemDetail(site) };
+  if (site.lastWpFetchOk === false) return { state: "error", label: "WP API ERR", detail: site.lastWpFetchError ?? "fetch failed" };
+  return { state: "unknown", label: "WP API —" };
+}
+
 function getUpdateCount(site: WpSite): number {
   let count = site.lastData?.core?.needs_update ? 1 : 0;
   count += site.lastData?.plugins?.filter((p) => p.needs_update).length ?? 0;
@@ -206,9 +231,19 @@ function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
     }
 
     if (site.lastData.offline_log && site.lastData.offline_log.total_events > 0) {
-      const count = site.lastData.offline_log.total_events;
-      const last  = site.lastData.offline_log.events[0];
-      alerts.push({ siteId: site.id, siteName: name, domain, type: "offline_event", label: "Offline geweest", detail: last ? last.date : `${count}x` });
+      const log = site.lastData.offline_log;
+      const tlsEvents = log.events.filter(isTlsOfflineEvent);
+      const nonTlsEvents = log.events.filter((e) => !isTlsOfflineEvent(e));
+
+      // WP plugin "offline_log" bevat ook TLS/cURL60. Label dit niet als "offline geweest".
+      if (tlsEvents.length > 0 && nonTlsEvents.length === 0) {
+        if (!hasTlsProblem(site)) {
+          alerts.push({ siteId: site.id, siteName: name, domain, type: "tls", label: "TLS fouten (WP)", detail: tlsEvents[0]?.date ?? `${tlsEvents.length}x` });
+        }
+      } else {
+        const last = log.events[0];
+        alerts.push({ siteId: site.id, siteName: name, domain, type: "offline_event", label: "Issues geweest", detail: last ? last.date : `${log.total_events}x` });
+      }
     }
   }
 
@@ -221,6 +256,21 @@ const badgeBase    = "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bord
 const badgeNeutral = `${badgeBase} bg-white/5 border-white/10 text-neutral-300`;
 const badgeRed     = `${badgeBase} bg-red-500/10 border-red-500/20 text-red-400`;
 const badgeOrange  = `${badgeBase} bg-orange-500/10 border-orange-500/20 text-orange-400`;
+const badgeGreen   = `${badgeBase} bg-[#20d67b]/10 border-[#20d67b]/20 text-[#20d67b]`;
+
+function WpApiBadge({ site }: { site: WpSite }) {
+  const api = getWpApiState(site);
+  const cls =
+    api.state === "ok" ? badgeGreen :
+    api.state === "tls" ? badgeOrange :
+    api.state === "error" ? badgeRed :
+    badgeNeutral;
+  return (
+    <span title={api.detail} className={cls}>
+      {api.label}
+    </span>
+  );
+}
 
 // ─── Alert type config ─────────────────────────────────────────────────────────
 
@@ -350,14 +400,21 @@ function OfflineLogModal({ log, siteName, onClose }: { log: OfflineLog; siteName
       </div>
       <div className="overflow-y-auto flex-1 px-8 py-4 space-y-2">
         {log.events.length === 0 ? <EmptyState label="Geen offline events geregistreerd" /> : log.events.map((event, i) => (
-          <div key={i} className="flex items-center justify-between gap-4 px-4 py-3 rounded-2xl border bg-red-500/5 border-red-500/20">
+          <div
+            key={i}
+            className={`flex items-center justify-between gap-4 px-4 py-3 rounded-2xl border ${
+              isTlsOfflineEvent(event) ? "bg-orange-500/5 border-orange-500/20" : "bg-red-500/5 border-red-500/20"
+            }`}
+          >
             <div className="flex items-center gap-3 shrink-0">
-              <div className="w-2 h-2 rounded-full bg-red-400" />
-              <span className="text-sm font-black font-mono w-10 text-red-400">{event.status_code || "ERR"}</span>
+              <div className={`w-2 h-2 rounded-full ${isTlsOfflineEvent(event) ? "bg-orange-400" : "bg-red-400"}`} />
+              <span className={`text-sm font-black font-mono w-10 ${isTlsOfflineEvent(event) ? "text-orange-400" : "text-red-400"}`}>{event.status_code || "ERR"}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-mono text-neutral-400 truncate">{event.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</p>
-              <p className="text-xs font-mono text-neutral-600 mt-0.5">{event.reason}</p>
+              <p className="text-xs font-mono text-neutral-600 mt-0.5">
+                {isTlsOfflineEvent(event) ? `TLS: ${event.reason}` : event.reason}
+              </p>
             </div>
             <span className="text-xs font-mono text-neutral-600 shrink-0 text-right">{event.date}</span>
           </div>
@@ -557,12 +614,33 @@ function PaginatedTable({
 
                 {/* Offline */}
                 <td className="px-4 py-5 text-center">
-                  {s.lastData?.offline_log ? (
-                    <button onClick={() => onOfflineModal(s.id)} className={`${badgeBase} transition-all ${s.lastData.offline_log.total_events > 0 ? "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20" : "bg-white/5 border-white/10 text-neutral-300 hover:border-white/20"}`}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                      {s.lastData.offline_log.total_events}
-                    </button>
-                  ) : <span className="text-neutral-600 text-sm font-mono">—</span>}
+                  {s.lastData?.offline_log ? (() => {
+                    const log = s.lastData.offline_log;
+                    const tlsCount = log.events.filter(isTlsOfflineEvent).length;
+                    const nonTlsCount = log.total_events - tlsCount;
+                    const isTlsOnly = log.total_events > 0 && nonTlsCount === 0;
+
+                    const label =
+                      log.total_events === 0 ? "0" :
+                      isTlsOnly ? `TLS ${tlsCount}` :
+                      `${log.total_events}`;
+
+                    const cls =
+                      log.total_events === 0 ? "bg-white/5 border-white/10 text-neutral-300 hover:border-white/20" :
+                      isTlsOnly ? "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20" :
+                      "bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20";
+
+                    return (
+                      <button
+                        onClick={() => onOfflineModal(s.id)}
+                        title={isTlsOnly ? "TLS problemen tijdens WP health checks (geen echte downtime)" : undefined}
+                        className={`${badgeBase} transition-all ${cls}`}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        {label}
+                      </button>
+                    );
+                  })() : <span className="text-neutral-600 text-sm font-mono">—</span>}
                 </td>
 
                 {/* Status */}
@@ -571,9 +649,7 @@ function PaginatedTable({
                     <span title={!isOnline(s) ? offlineReason(s) : undefined}>
                       <Badge color={isOnline(s) ? "custom" : "red"}>{s.status ?? (isOnline(s) ? "online" : "offline")}</Badge>
                     </span>
-                    {hasTlsProblem(s) && (
-                      <span title={tlsProblemDetail(s)} className={badgeOrange}>TLS</span>
-                    )}
+                    <WpApiBadge site={s} />
                   </div>
                 </td>
 
@@ -997,7 +1073,7 @@ export default function SmartWpWidget() {
                       </div>
                     )}
                     <Badge color="custom">{s.status ?? "online"}</Badge>
-                    {hasTlsProblem(s) && <span title={tlsProblemDetail(s)} className={badgeOrange}>TLS</span>}
+                    <WpApiBadge site={s} />
                     {s.lastData.ssl && <SslBadge ssl={s.lastData.ssl} />}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1009,9 +1085,32 @@ export default function SmartWpWidget() {
                     </button>
                     {s.lastData.http_health && <HttpHealthBadge health={s.lastData.http_health} onClick={() => setHealthModal(s.id)} />}
                     {s.lastData.offline_log && (
-                      <button onClick={(e) => { e.stopPropagation(); setOfflineModal(s.id); }} className={`${s.lastData.offline_log.total_events > 0 ? badgeOrange : badgeNeutral} hover:opacity-80 transition-all`}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setOfflineModal(s.id); }}
+                        className={`${(() => {
+                          const log = s.lastData?.offline_log;
+                          if (!log || log.total_events === 0) return badgeNeutral;
+                          const tlsCount = log.events.filter(isTlsOfflineEvent).length;
+                          const nonTlsCount = log.total_events - tlsCount;
+                          return nonTlsCount === 0 ? badgeOrange : badgeRed;
+                        })()} hover:opacity-80 transition-all`}
+                        title={(() => {
+                          const log = s.lastData?.offline_log;
+                          if (!log || log.total_events === 0) return undefined;
+                          const tlsCount = log.events.filter(isTlsOfflineEvent).length;
+                          const nonTlsCount = log.total_events - tlsCount;
+                          if (nonTlsCount === 0) return "TLS problemen tijdens WP health checks (geen echte downtime)";
+                          return undefined;
+                        })()}
+                      >
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        {s.lastData.offline_log.total_events > 0 ? `${s.lastData.offline_log.total_events} offline` : "Geen offline"}
+                        {(() => {
+                          const log = s.lastData?.offline_log;
+                          if (!log || log.total_events === 0) return "Geen issues";
+                          const tlsCount = log.events.filter(isTlsOfflineEvent).length;
+                          const nonTlsCount = log.total_events - tlsCount;
+                          return nonTlsCount === 0 ? `${tlsCount} TLS` : `${log.total_events} issues`;
+                        })()}
                       </button>
                     )}
                   </div>
