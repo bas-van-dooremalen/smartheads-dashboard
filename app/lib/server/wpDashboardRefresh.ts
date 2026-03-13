@@ -129,11 +129,31 @@ export function normalizeDomain(raw: unknown): string | null {
 
 function normalizeErrorMessage(e: unknown): string {
   if (e instanceof Error) {
-    const msg = (e.message || e.name || "error").trim();
-    return msg.length > 200 ? msg.slice(0, 200) : msg;
+    const base = (e.message || e.name || "error").trim();
+    const anyErr = e as any;
+    const cause = anyErr?.cause;
+
+    // Node/undici often throws "TypeError: fetch failed" with a useful cause code.
+    const causeParts: string[] = [];
+    if (cause && typeof cause === "object") {
+      const causeCode =
+        typeof (cause as any).code === "string" ? (cause as any).code : null;
+      const causeMessage =
+        typeof (cause as any).message === "string"
+          ? (cause as any).message
+          : null;
+
+      if (causeCode) causeParts.push(causeCode);
+      if (causeMessage && causeMessage !== base) causeParts.push(causeMessage);
+    } else if (typeof cause === "string" && cause !== base) {
+      causeParts.push(cause);
+    }
+
+    const msg = causeParts.length ? `${base} (${causeParts.join(": ")})` : base;
+    return msg.length > 250 ? msg.slice(0, 250) : msg;
   }
   const msg = String(e ?? "error").trim();
-  return msg.length > 200 ? msg.slice(0, 200) : msg;
+  return msg.length > 250 ? msg.slice(0, 250) : msg;
 }
 
 async function checkSiteReachability(domain: string): Promise<Reachability> {
