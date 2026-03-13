@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export type AlertSeverity = "critical" | "warning" | "info";
-export type AlertCategory = "offline" | "http" | "ssl" | "offline_event" | "update";
+export type AlertCategory = "offline" | "http" | "ssl" | "tls" | "offline_event" | "update";
 
 export interface AlertLogEntry {
   id: string;               // unieke ID per log-regel
@@ -78,6 +78,14 @@ function analyzeRootCause(entry: Omit<AlertLogEntry, "id" | "timestamp" | "rootC
         actionUrl: `https://${entry.domain}/wp-admin`,
       };
 
+    case "tls":
+      return {
+        rootCause: "TLS (Transport Layer Security) handshake faalt voor de monitor. Dit betekent meestal dat de server geen complete certificaatketen (intermediate CA) meestuurt, of dat er een certificaat/hostname mismatch is.",
+        technicalDetail: `TLS-validatie mislukt voor ${entry.domain}. Detail: ${entry.detail}. De monitor ziet vaak UNABLE_TO_VERIFY_LEAF_SIGNATURE of 'unable to verify the first certificate'.`,
+        prevention: "Laat de hosting-provider de volledige certificate chain (fullchain) installeren. Test met SSL Labs en controleer of intermediate certificaten meegestuurd worden. Vermijd handmatig geplaatste certificaten zonder fullchain.",
+        actionUrl: `https://www.ssllabs.com/ssltest/analyze.html?d=${entry.domain}`,
+      };
+
     case "offline_event":
       return {
         rootCause: "De site is recentelijk offline geweest. Dit kan wijzen op instabiele hosting, piek-belasting, of geplande onderhoud zonder melding.",
@@ -127,6 +135,7 @@ const categoryLabel: Record<AlertCategory, string> = {
   offline:       "Offline",
   http:          "HTTP fout",
   ssl:           "SSL",
+  tls:           "TLS",
   offline_event: "Offline event",
   update:        "Update",
 };
@@ -279,7 +288,7 @@ export function AlertLogPanel({ log, onResolve, onClear }: AlertLogPanelProps) {
 
         {/* Category */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          {(["all", "offline", "http", "ssl", "offline_event", "update"] as FilterCategory[]).map((c) => (
+          {(["all", "offline", "http", "ssl", "tls", "offline_event", "update"] as FilterCategory[]).map((c) => (
             <button
               key={c}
               onClick={() => setFilterCategory(c)}
@@ -490,6 +499,8 @@ export function syncAlertsToLog(
         ? "critical"
         : alert.type === "ssl" && alert.detail.toLowerCase().includes("fout")
         ? "critical"
+        : alert.type === "tls"
+        ? "warning"
         : alert.type === "ssl"
         ? "warning"
         : "info";
