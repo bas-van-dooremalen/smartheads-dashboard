@@ -88,7 +88,7 @@ interface WpSite {
   lastWpFetchError?: string | null;
 }
 
-type FilterType = "all" | "core" | "plugins" | "themes" | "http" | "ssl" | "tls";
+type FilterType = "all" | "core" | "plugins" | "themes" | "ssl";
 type LayoutType = "grid" | "list";
 type SortType   = "name" | "updates";
 
@@ -96,7 +96,7 @@ interface CriticalAlert {
   siteId: string;
   siteName: string;
   domain: string;
-  type: "offline" | "http" | "ssl" | "tls" | "offline_event";
+  type: "offline" | "ssl";
   label: string;
   detail: string;
 }
@@ -124,48 +124,6 @@ function offlineReason(site: WpSite): string {
   if (r.error) return r.error;
   if (r.statusCode !== null) return `HTTP ${r.statusCode}`;
   return "Site reageert niet";
-}
-
-function hasTlsProblem(site: WpSite): boolean {
-  const err = (site.lastWpFetchError ?? "").toLowerCase();
-  if (!err) return false;
-
-  return (
-    err.includes("unable_to_verify_leaf_signature".toLowerCase()) ||
-    err.includes("unable to verify the first certificate") ||
-    err.includes("unable to get local issuer certificate") ||
-    err.includes("cert_has_expired".toLowerCase()) ||
-    err.includes("err_tls_cert_altname_invalid".toLowerCase())
-  );
-}
-
-function tlsProblemDetail(site: WpSite): string {
-  return site.lastWpFetchError ?? "TLS probleem";
-}
-
-function isTlsReason(reason: string): boolean {
-  const r = (reason ?? "").toLowerCase();
-  if (!r) return false;
-  return (
-    r.includes("unable_to_verify_leaf_signature".toLowerCase()) ||
-    r.includes("unable to verify the first certificate") ||
-    r.includes("unable to get local issuer certificate") ||
-    r.includes("ssl certificate problem") ||
-    r.includes("certificate") ||
-    r.includes("curl error 60")
-  );
-}
-
-function isTlsOfflineEvent(e: OfflineEvent): boolean {
-  return e.status_code === 0 && isTlsReason(e.reason);
-}
-
-type WpApiState = "ok" | "tls" | "error" | "unknown";
-function getWpApiState(site: WpSite): { state: WpApiState; label: string; detail?: string } {
-  if (site.lastWpFetchOk === true) return { state: "ok", label: "WP API OK" };
-  if (hasTlsProblem(site)) return { state: "tls", label: "WP API TLS", detail: tlsProblemDetail(site) };
-  if (site.lastWpFetchOk === false) return { state: "error", label: "WP API ERR", detail: site.lastWpFetchError ?? "fetch failed" };
-  return { state: "unknown", label: "WP API —" };
 }
 
 function getUpdateCount(site: WpSite): number {
@@ -208,16 +166,7 @@ function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
       alerts.push({ siteId: site.id, siteName: name, domain, type: "offline", label: "Offline", detail: offlineReason(site) });
     }
 
-    if (isOnline(site) && hasTlsProblem(site)) {
-      alerts.push({ siteId: site.id, siteName: name, domain, type: "tls", label: "TLS probleem", detail: "Certificaatketen onvolledig" });
-    }
-
     if (!site.lastData) continue;
-
-    if (site.lastData.http_health?.has_errors) {
-      const count = site.lastData.http_health.error_count;
-      alerts.push({ siteId: site.id, siteName: name, domain, type: "http", label: "HTTP fouten", detail: `${count} pagina${count === 1 ? "" : "s"} met fout` });
-    }
 
     if (site.lastData.ssl) {
       const { status, days_remaining } = site.lastData.ssl;
@@ -227,22 +176,6 @@ function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
         alerts.push({ siteId: site.id, siteName: name, domain, type: "ssl", label: "SSL verloopt", detail: `Nog ${days_remaining} dagen` });
       } else if (days_remaining !== null && days_remaining <= SSL_WARN_DAYS) {
         alerts.push({ siteId: site.id, siteName: name, domain, type: "ssl", label: "SSL binnenkort", detail: `Nog ${days_remaining} dagen` });
-      }
-    }
-
-    if (site.lastData.offline_log && site.lastData.offline_log.total_events > 0) {
-      const log = site.lastData.offline_log;
-      const tlsEvents = log.events.filter(isTlsOfflineEvent);
-      const nonTlsEvents = log.events.filter((e) => !isTlsOfflineEvent(e));
-
-      // WP plugin "offline_log" bevat ook TLS/cURL60. Label dit niet als "offline geweest".
-      if (tlsEvents.length > 0 && nonTlsEvents.length === 0) {
-        if (!hasTlsProblem(site)) {
-          alerts.push({ siteId: site.id, siteName: name, domain, type: "tls", label: "TLS fouten (WP)", detail: tlsEvents[0]?.date ?? `${tlsEvents.length}x` });
-        }
-      } else {
-        const last = log.events[0];
-        alerts.push({ siteId: site.id, siteName: name, domain, type: "offline_event", label: "Issues geweest", detail: last ? last.date : `${log.total_events}x` });
       }
     }
   }
@@ -256,68 +189,12 @@ const badgeBase    = "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bord
 const badgeNeutral = `${badgeBase} bg-white/5 border-white/10 text-neutral-300`;
 const badgeRed     = `${badgeBase} bg-red-500/10 border-red-500/20 text-red-400`;
 const badgeOrange  = `${badgeBase} bg-orange-500/10 border-orange-500/20 text-orange-400`;
-const badgeGreen   = `${badgeBase} bg-[#20d67b]/10 border-[#20d67b]/20 text-[#20d67b]`;
 
-function WpApiBadge({ site }: { site: WpSite }) {
-  const api = getWpApiState(site);
-  const cls =
-    api.state === "ok" ? badgeGreen :
-    api.state === "tls" ? badgeOrange :
-    api.state === "error" ? badgeRed :
-    badgeNeutral;
-  return (
-    <span title={api.detail} className={cls}>
-      {api.label}
-    </span>
-  );
-}
-
-// ─── Alert type config ─────────────────────────────────────────────────────────
-
-const alertConfig: Record<CriticalAlert["type"], { color: string; bg: string; border: string; icon: React.ReactNode }> = {
-  offline: {
-    color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20",
-    icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
-  },
-  http: {
-    color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20",
-    icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
-  },
-  ssl: {
-    color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20",
-    icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
-  },
-  tls: {
-    color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20",
-    icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a7 7 0 0 0-7 7v3H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1V9a7 7 0 0 0-7-7z"/><path d="M9 12V9a3 3 0 0 1 6 0v3"/></svg>,
-  },
-  offline_event: {
-    color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20",
-    icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
-  },
-};
+// (Alert type config/sidebar removed for a simpler table view)
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
-function CloseButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="text-neutral-500 hover:text-white transition-colors">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-      </svg>
-    </button>
-  );
-}
-
-function ModalShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[30000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md" onClick={onClose}>
-      <div className="bg-neutral-950 border border-white/10 rounded-[2.5rem] max-w-2xl w-full shadow-2xl flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  );
-}
+// (Modal helpers removed for a simpler table view)
 
 function SslBadge({ ssl }: { ssl: Ssl }) {
   const lockIcon = (
@@ -332,97 +209,9 @@ function SslBadge({ ssl }: { ssl: Ssl }) {
   return <div className={badgeRed}>{lockIcon}<span>{label}</span></div>;
 }
 
-function HttpHealthBadge({ health, onClick }: { health: HttpHealth; onClick: () => void }) {
-  if (health.has_errors) {
-    return (
-      <button onClick={onClick} className={`${badgeRed} hover:bg-red-500/20 transition-all`}>
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span>{health.error_count} HTTP {health.error_count === 1 ? "fout" : "fouten"}</span>
-      </button>
-    );
-  }
-  return (
-    <button onClick={onClick} className={`${badgeNeutral} hover:border-[#20d67b]/20 hover:text-[#20d67b] transition-all`}>
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      <span>{health.total_checked} OK</span>
-    </button>
-  );
-}
+// (HTTP health badges removed for a simpler table view)
 
-function HttpHealthModal({ health, siteName, onClose }: { health: HttpHealth; siteName: string; onClose: () => void }) {
-  const [tab, setTab] = useState<"errors" | "all">("errors");
-  const displayed = tab === "errors" ? health.checks.filter((c) => c.is_error) : health.checks;
-  return (
-    <ModalShell onClose={onClose}>
-      <div className="flex items-start justify-between p-8 pb-4 border-b border-white/5">
-        <div>
-          <h4 className="text-xl font-black text-white italic uppercase tracking-tighter">{siteName}</h4>
-          <p className="text-xs font-mono text-neutral-500 mt-1 uppercase tracking-widest">HTTP Health Monitor</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right"><p className="text-xs font-mono text-neutral-500 uppercase tracking-widest">Checked</p><p className="text-lg font-black text-white">{health.total_checked}</p></div>
-          <div className="text-right"><p className="text-xs font-mono text-neutral-500 uppercase tracking-widest">Errors</p><p className={`text-lg font-black ${health.error_count > 0 ? "text-red-400" : "text-[#20d67b]"}`}>{health.error_count}</p></div>
-          <div className="ml-4"><CloseButton onClick={onClose} /></div>
-        </div>
-      </div>
-      <div className="flex gap-2 px-8 pt-4">
-        <button onClick={() => setTab("errors")} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border ${tab === "errors" ? "bg-red-500/20 text-red-400 border-red-500/30" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>Errors ({health.error_count})</button>
-        <button onClick={() => setTab("all")} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border ${tab === "all" ? "bg-[#20d67b]/20 text-[#20d67b] border-[#20d67b]/30" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>Alle ({health.total_checked})</button>
-      </div>
-      <div className="overflow-y-auto flex-1 px-8 py-4 space-y-2">
-        {displayed.length === 0 ? <EmptyState label="Geen fouten gevonden" /> : displayed.map((check, i) => (
-          <div key={i} className={`flex items-center justify-between gap-4 px-4 py-3 rounded-2xl border transition-all ${check.is_error ? "bg-red-500/5 border-red-500/20" : check.is_redirect ? "bg-yellow-500/5 border-yellow-500/10" : "bg-white/[0.02] border-white/5"}`}>
-            <div className="flex items-center gap-3 shrink-0">
-              <div className={`w-2 h-2 rounded-full ${check.is_error ? "bg-red-400" : check.is_redirect ? "bg-yellow-400" : "bg-[#20d67b]"}`} />
-              <span className={`text-sm font-black font-mono w-10 ${check.is_error ? "text-red-400" : check.is_redirect ? "text-yellow-400" : "text-[#20d67b]"}`}>{check.status_code || "ERR"}</span>
-            </div>
-            <a href={check.url} target="_blank" rel="noopener noreferrer" className="flex-1 text-xs font-mono text-neutral-400 hover:text-white transition-colors truncate">{check.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</a>
-            <span className={`text-xs font-mono shrink-0 ${check.response_time_ms > 800 ? "text-yellow-400" : check.response_time_ms > 400 ? "text-neutral-400" : "text-neutral-600"}`}>{check.response_time_ms}ms</span>
-          </div>
-        ))}
-      </div>
-    </ModalShell>
-  );
-}
-
-function OfflineLogModal({ log, siteName, onClose }: { log: OfflineLog; siteName: string; onClose: () => void }) {
-  return (
-    <ModalShell onClose={onClose}>
-      <div className="flex items-start justify-between p-8 pb-4 border-b border-white/5">
-        <div>
-          <h4 className="text-xl font-black text-white italic uppercase tracking-tighter">{siteName}</h4>
-          <p className="text-xs font-mono text-neutral-500 mt-1 uppercase tracking-widest">Offline History</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right"><p className="text-xs font-mono text-neutral-500 uppercase tracking-widest">Events</p><p className={`text-lg font-black ${log.total_events > 0 ? "text-red-400" : "text-[#20d67b]"}`}>{log.total_events}</p></div>
-          <div className="ml-4"><CloseButton onClick={onClose} /></div>
-        </div>
-      </div>
-      <div className="overflow-y-auto flex-1 px-8 py-4 space-y-2">
-        {log.events.length === 0 ? <EmptyState label="Geen offline events geregistreerd" /> : log.events.map((event, i) => (
-          <div
-            key={i}
-            className={`flex items-center justify-between gap-4 px-4 py-3 rounded-2xl border ${
-              isTlsOfflineEvent(event) ? "bg-orange-500/5 border-orange-500/20" : "bg-red-500/5 border-red-500/20"
-            }`}
-          >
-            <div className="flex items-center gap-3 shrink-0">
-              <div className={`w-2 h-2 rounded-full ${isTlsOfflineEvent(event) ? "bg-orange-400" : "bg-red-400"}`} />
-              <span className={`text-sm font-black font-mono w-10 ${isTlsOfflineEvent(event) ? "text-orange-400" : "text-red-400"}`}>{event.status_code || "ERR"}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-mono text-neutral-400 truncate">{event.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</p>
-              <p className="text-xs font-mono text-neutral-600 mt-0.5">
-                {isTlsOfflineEvent(event) ? `TLS: ${event.reason}` : event.reason}
-              </p>
-            </div>
-            <span className="text-xs font-mono text-neutral-600 shrink-0 text-right">{event.date}</span>
-          </div>
-        ))}
-      </div>
-    </ModalShell>
-  );
-}
+// (HTTP/Offline modals removed for a simpler table view)
 
 function EmptyState({ label }: { label: string }) {
   return (
@@ -437,63 +226,17 @@ function EmptyState({ label }: { label: string }) {
 
 // ─── Critical Alerts Panel ─────────────────────────────────────────────────────
 
-function CriticalAlertsPanel({ alerts }: { alerts: CriticalAlert[] }) {
-  return (
-    <div className="flex flex-col bg-neutral-950/60 border border-white/5 rounded-[2rem] p-6 min-w-[280px] w-[280px] shrink-0">
-      <div className="flex items-center gap-3 mb-5">
-        <div className={`w-2 h-2 rounded-full ${alerts.length > 0 ? "bg-red-400 animate-pulse" : "bg-[#20d67b]"}`} />
-        <h3 className="text-xs font-black uppercase tracking-widest text-neutral-300">Kritieke meldingen</h3>
-        {alerts.length > 0 && (
-          <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center">{alerts.length}</span>
-        )}
-      </div>
-
-      {alerts.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-8">
-          <div className="w-10 h-10 rounded-full bg-[#20d67b]/10 flex items-center justify-center mb-3">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#20d67b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </div>
-          <p className="text-neutral-600 text-[10px] font-black uppercase tracking-widest text-center">Alles in orde</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2 overflow-y-auto flex-1">
-          {alerts.map((alert, i) => {
-            const cfg = alertConfig[alert.type];
-            return (
-              <a
-                key={i}
-                href={`https://${alert.domain}/wp-admin`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-start gap-3 px-3 py-3 rounded-2xl border ${cfg.bg} ${cfg.border} hover:opacity-80 transition-all`}
-              >
-                <span className={`mt-0.5 shrink-0 ${cfg.color}`}>{cfg.icon}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-black text-white truncate">{alert.siteName}</p>
-                  <p className={`text-[10px] font-mono ${cfg.color} mt-0.5`}>{alert.label} — {alert.detail}</p>
-                </div>
-              </a>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
+// (Critical alerts sidebar removed for a simpler table view)
 
 // ─── Table with pagination/slides ─────────────────────────────────────────────
 
 function PaginatedTable({
   sites,
-  onHealthModal,
-  onOfflineModal,
   onDeleteConfirm,
   expandedSite,
   setExpandedSite,
 }: {
   sites: WpSite[];
-  onHealthModal: (id: string) => void;
-  onOfflineModal: (id: string) => void;
   onDeleteConfirm: (id: string) => void;
   expandedSite: string | null;
   setExpandedSite: (v: string | null) => void;
@@ -552,7 +295,7 @@ function PaginatedTable({
         <table className="min-w-full divide-y divide-white/10">
           <thead>
             <tr className="bg-neutral-900">
-              {["Site","PHP","Core","Plugins","Themes","HTTP","SSL","Offline","Status",""].map((h) => (
+              {["Site","PHP","Core","Plugins","Themes","SSL","Status",""].map((h) => (
                 <th key={h} className={`px-4 py-4 text-xs font-black uppercase tracking-wider text-neutral-400 ${h === "Site" ? "text-left px-6" : ""}`}>{h}</th>
               ))}
             </tr>
@@ -589,19 +332,6 @@ function PaginatedTable({
                   {s.lastData?.themes?.filter((t) => t.needs_update).length ?? 0}
                 </td>
 
-                {/* HTTP */}
-                <td className="px-4 py-5 text-center">
-                  {s.lastData?.http_health ? (
-                    <button onClick={() => onHealthModal(s.id)} className={`${badgeBase} transition-all ${s.lastData.http_health.has_errors ? "bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20" : "bg-white/5 border-white/10 text-neutral-300 hover:border-[#20d67b]/20 hover:text-[#20d67b]"}`}>
-                      {s.lastData.http_health.has_errors ? (
-                        <><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{s.lastData.http_health.error_count} err</>
-                      ) : (
-                        <><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{s.lastData.http_health.total_checked} ok</>
-                      )}
-                    </button>
-                  ) : <span className="text-neutral-600 text-sm font-mono">—</span>}
-                </td>
-
                 {/* SSL */}
                 <td className="px-4 py-5 text-center">
                   {s.lastData?.ssl ? (
@@ -612,45 +342,11 @@ function PaginatedTable({
                   ) : <span className="text-neutral-600 text-sm font-mono">—</span>}
                 </td>
 
-                {/* Offline */}
-                <td className="px-4 py-5 text-center">
-                  {s.lastData?.offline_log ? (() => {
-                    const log = s.lastData.offline_log;
-                    const tlsCount = log.events.filter(isTlsOfflineEvent).length;
-                    const nonTlsCount = log.total_events - tlsCount;
-                    const isTlsOnly = log.total_events > 0 && nonTlsCount === 0;
-
-                    const label =
-                      log.total_events === 0 ? "0" :
-                      isTlsOnly ? `TLS ${tlsCount}` :
-                      `${log.total_events}`;
-
-                    const cls =
-                      log.total_events === 0 ? "bg-white/5 border-white/10 text-neutral-300 hover:border-white/20" :
-                      isTlsOnly ? "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20" :
-                      "bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20";
-
-                    return (
-                      <button
-                        onClick={() => onOfflineModal(s.id)}
-                        title={isTlsOnly ? "TLS problemen tijdens WP health checks (geen echte downtime)" : undefined}
-                        className={`${badgeBase} transition-all ${cls}`}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        {label}
-                      </button>
-                    );
-                  })() : <span className="text-neutral-600 text-sm font-mono">—</span>}
-                </td>
-
                 {/* Status */}
                 <td className="px-4 py-5 text-center">
-                  <div className="flex flex-col items-center gap-1">
-                    <span title={!isOnline(s) ? offlineReason(s) : undefined}>
-                      <Badge color={isOnline(s) ? "custom" : "red"}>{s.status ?? (isOnline(s) ? "online" : "offline")}</Badge>
-                    </span>
-                    <WpApiBadge site={s} />
-                  </div>
+                  <span title={!isOnline(s) ? offlineReason(s) : undefined}>
+                    <Badge color={isOnline(s) ? "custom" : "red"}>{s.status ?? (isOnline(s) ? "online" : "offline")}</Badge>
+                  </span>
                 </td>
 
                 {/* Acties */}
@@ -747,8 +443,6 @@ export default function SmartWpWidget() {
   const [sortBy, setSortBy]             = useState<SortType>("name");
   const [expandedSite, setExpandedSite] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [healthModal, setHealthModal]   = useState<string | null>(null);
-  const [offlineModal, setOfflineModal] = useState<string | null>(null);
   const [lastSync, setLastSync]         = useState<Date | null>(null);
   const [showLog, setShowLog]           = useState(false);
   const [adminKey, setAdminKey]         = useState<string | null>(null);
@@ -764,8 +458,6 @@ export default function SmartWpWidget() {
       if (e.key === "Escape") {
         setExpandedSite(null);
         setDeleteConfirm(null);
-        setHealthModal(null);
-        setOfflineModal(null);
         setShowAdminKeyModal(false);
       }
     };
@@ -844,12 +536,10 @@ export default function SmartWpWidget() {
     return sites
       .filter((s) => {
         if (filter === "all")     return true;
-        if (filter === "tls")     return hasTlsProblem(s);
         if (!s.lastData)          return false;
         if (filter === "core")    return s.lastData.core?.needs_update;
         if (filter === "plugins") return s.lastData.plugins?.some((p) => p.needs_update);
         if (filter === "themes")  return s.lastData.themes?.some((t) => t.needs_update);
-        if (filter === "http")    return s.lastData.http_health?.has_errors;
         if (filter === "ssl")     return s.lastData.ssl?.status === "critical" || s.lastData.ssl?.status === "error";
         return true;
       })
@@ -867,9 +557,7 @@ export default function SmartWpWidget() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [criticalAlerts]);
 
-  const httpErrorSites = useMemo(() => sites.filter((s) => s.lastData?.http_health?.has_errors).length, [sites]);
   const sslErrorSites  = useMemo(() => sites.filter((s) => s.lastData?.ssl?.status === "critical" || s.lastData?.ssl?.status === "error").length, [sites]);
-  const tlsIssueSites  = useMemo(() => sites.filter((s) => hasTlsProblem(s)).length, [sites]);
 
   // Aantal onopgeloste log-entries voor de badge op de knop
   const unresolvedLogCount = useMemo(() => log.filter((e) => !e.resolvedAt).length, [log]);
@@ -944,19 +632,7 @@ export default function SmartWpWidget() {
         </div>
       )}
 
-      {/* HTTP Health Modal */}
-      {healthModal && (() => {
-        const site = sites.find((s) => s.id === healthModal);
-        if (!site?.lastData?.http_health) return null;
-        return <HttpHealthModal health={site.lastData.http_health} siteName={getSiteName(site)} onClose={() => setHealthModal(null)} />;
-      })()}
-
-      {/* Offline Log Modal */}
-      {offlineModal && (() => {
-        const site = sites.find((s) => s.id === offlineModal);
-        if (!site?.lastData?.offline_log) return null;
-        return <OfflineLogModal log={site.lastData.offline_log} siteName={getSiteName(site)} onClose={() => setOfflineModal(null)} />;
-      })()}
+      {/* (HTTP/Offline modals removed) */}
 
       {/* Toolbar */}
       <div className="flex flex-col space-y-8 mb-10">
@@ -971,17 +647,9 @@ export default function SmartWpWidget() {
               {(["all", "core", "plugins", "themes"] as const).map((f) => (
                 <button key={f} onClick={() => setFilter(f)} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border ${filter === f ? "bg-[#20d67b] text-black border-[#20d67b]" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>{f}</button>
               ))}
-              <button onClick={() => setFilter("http")} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border flex items-center gap-2 ${filter === "http" ? "bg-red-500 text-white border-red-500" : httpErrorSites > 0 ? "bg-red-500/10 text-red-400 border-red-500/30 hover:border-red-500/50" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>
-                HTTP
-                {httpErrorSites > 0 && <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${filter === "http" ? "bg-white text-red-500" : "bg-red-500 text-white"}`}>{httpErrorSites}</span>}
-              </button>
               <button onClick={() => setFilter("ssl")} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border flex items-center gap-2 ${filter === "ssl" ? "bg-red-500 text-white border-red-500" : sslErrorSites > 0 ? "bg-red-500/10 text-red-400 border-red-500/30 hover:border-red-500/50" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>
                 SSL
                 {sslErrorSites > 0 && <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${filter === "ssl" ? "bg-white text-red-500" : "bg-red-500 text-white"}`}>{sslErrorSites}</span>}
-              </button>
-              <button onClick={() => setFilter("tls")} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border flex items-center gap-2 ${filter === "tls" ? "bg-orange-500 text-white border-orange-500" : tlsIssueSites > 0 ? "bg-orange-500/10 text-orange-400 border-orange-500/30 hover:border-orange-500/50" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>
-                TLS
-                {tlsIssueSites > 0 && <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${filter === "tls" ? "bg-white text-orange-500" : "bg-orange-500 text-white"}`}>{tlsIssueSites}</span>}
               </button>
             </div>
           </div>
@@ -1073,7 +741,6 @@ export default function SmartWpWidget() {
                       </div>
                     )}
                     <Badge color="custom">{s.status ?? "online"}</Badge>
-                    <WpApiBadge site={s} />
                     {s.lastData.ssl && <SslBadge ssl={s.lastData.ssl} />}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1083,36 +750,7 @@ export default function SmartWpWidget() {
                     <button onClick={(e) => { e.stopPropagation(); if (s.lastData?.themes?.some((t) => t.needs_update)) setExpandedSite(`${s.id}-t`); }} className={`px-3 py-1.5 rounded-xl border transition-all flex items-center gap-2 text-xs font-black uppercase ${s.lastData.themes?.some((t) => t.needs_update) ? "bg-pink-500/10 border-pink-500/20 text-pink-500 hover:bg-pink-500/20" : "bg-white/5 border-white/5 text-neutral-600 opacity-50"}`}>
                       Themes <span className="font-mono">{s.lastData.themes?.filter((t) => t.needs_update).length ?? 0}</span>
                     </button>
-                    {s.lastData.http_health && <HttpHealthBadge health={s.lastData.http_health} onClick={() => setHealthModal(s.id)} />}
-                    {s.lastData.offline_log && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setOfflineModal(s.id); }}
-                        className={`${(() => {
-                          const log = s.lastData?.offline_log;
-                          if (!log || log.total_events === 0) return badgeNeutral;
-                          const tlsCount = log.events.filter(isTlsOfflineEvent).length;
-                          const nonTlsCount = log.total_events - tlsCount;
-                          return nonTlsCount === 0 ? badgeOrange : badgeRed;
-                        })()} hover:opacity-80 transition-all`}
-                        title={(() => {
-                          const log = s.lastData?.offline_log;
-                          if (!log || log.total_events === 0) return undefined;
-                          const tlsCount = log.events.filter(isTlsOfflineEvent).length;
-                          const nonTlsCount = log.total_events - tlsCount;
-                          if (nonTlsCount === 0) return "TLS problemen tijdens WP health checks (geen echte downtime)";
-                          return undefined;
-                        })()}
-                      >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        {(() => {
-                          const log = s.lastData?.offline_log;
-                          if (!log || log.total_events === 0) return "Geen issues";
-                          const tlsCount = log.events.filter(isTlsOfflineEvent).length;
-                          const nonTlsCount = log.total_events - tlsCount;
-                          return nonTlsCount === 0 ? `${tlsCount} TLS` : `${log.total_events} issues`;
-                        })()}
-                      </button>
-                    )}
+                    {/* offline_log/HTTP health hidden in simplified view */}
                   </div>
                   {(expandedSite === `${s.id}-p` || expandedSite === `${s.id}-t`) && (
                     <StaticModal
@@ -1133,18 +771,13 @@ export default function SmartWpWidget() {
 
       ) : (
 
-        // ─── List / Table + Critical Alerts sidebar ─────────────────────────────
-        <div className="flex gap-6 items-start">
-          <PaginatedTable
-            sites={processedSites}
-            onHealthModal={setHealthModal}
-            onOfflineModal={setOfflineModal}
-            onDeleteConfirm={setDeleteConfirm}
-            expandedSite={expandedSite}
-            setExpandedSite={setExpandedSite}
-          />
-          <CriticalAlertsPanel alerts={criticalAlerts} />
-        </div>
+        // ─── List / Table ───────────────────────────────────────────────────────
+        <PaginatedTable
+          sites={processedSites}
+          onDeleteConfirm={setDeleteConfirm}
+          expandedSite={expandedSite}
+          setExpandedSite={setExpandedSite}
+        />
       )}
 
       {/* ─── Alert Log (inklapbaar onder het dashboard) ──────────────────────── */}
