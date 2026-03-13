@@ -21,6 +21,7 @@ type WpFetchResult = {
   statusCode: number | null;
   responseTimeMs: number;
   error: string | null;
+  host: string;
 };
 
 const HttpCheckSchema = z
@@ -136,129 +137,171 @@ function normalizeErrorMessage(e: unknown): string {
 }
 
 async function checkSiteReachability(domain: string): Promise<Reachability> {
-  const url = `https://${domain}/`;
-  const start = Date.now();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REACHABILITY_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "user-agent": "Smartheads-Dashboard-Monitor/3.0",
-        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    });
+  const hosts = domain.startsWith("www.") ? [domain] : [domain, `www.${domain}`];
+  let lastFailure: Reachability | null = null;
 
-    // We only care that the server responds; don't download the whole page.
+  for (const host of hosts) {
+    const url = `https://${host}/`;
+    const start = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REACHABILITY_TIMEOUT_MS);
     try {
-      await res.body?.cancel();
-    } catch {
-      // Ignore.
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: {
+          "user-agent": "Smartheads-Dashboard-Monitor/3.0",
+          accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      });
+
+      // We only care that the server responds; don't download the whole page.
+      try {
+        await res.body?.cancel();
+      } catch {
+        // Ignore.
+      }
+
+      const responseTimeMs = Date.now() - start;
+      const statusCode = typeof res.status === "number" ? res.status : null;
+      const result: Reachability = {
+        ok: statusCode !== null ? statusCode < 500 : false,
+        url,
+        statusCode,
+        statusText: res.statusText || null,
+        responseTimeMs,
+        checkedAt: Date.now(),
+        error: null,
+      };
+
+      // If we got any response, accept it; a 4xx still proves reachability.
+      return result;
+    } catch (e: unknown) {
+      const responseTimeMs = Date.now() - start;
+      const name = e instanceof Error ? e.name : "";
+      const error = name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
+      lastFailure = {
+        ok: false,
+        url,
+        statusCode: null,
+        statusText: null,
+        responseTimeMs,
+        checkedAt: Date.now(),
+        error,
+      };
+    } finally {
+      clearTimeout(timeout);
     }
+  }
 
-    const responseTimeMs = Date.now() - start;
-    const statusCode = typeof res.status === "number" ? res.status : null;
-
-    return {
-      ok: statusCode !== null ? statusCode < 500 : false,
-      url,
-      statusCode,
-      statusText: res.statusText || null,
-      responseTimeMs,
-      checkedAt: Date.now(),
-      error: null,
-    };
-  } catch (e: unknown) {
-    const responseTimeMs = Date.now() - start;
-    const name = e instanceof Error ? e.name : "";
-    const error =
-      name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
-
-    return {
+  return (
+    lastFailure ?? {
       ok: false,
-      url,
+      url: `https://${domain}/`,
       statusCode: null,
       statusText: null,
-      responseTimeMs,
+      responseTimeMs: 0,
       checkedAt: Date.now(),
-      error,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+      error: "unknown",
+    }
+  );
 }
 
 export async function fetchWpSiteData(domain: string) {
   const apiKey = process.env.WP_DASHBOARD_API_KEY;
   if (!apiKey) throw new Error("Missing WP_DASHBOARD_API_KEY");
 
-  const start = Date.now();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(
-      `https://${domain}/wp-json/dashboard/v1/updates?key=${encodeURIComponent(apiKey)}&_=${Date.now()}`,
-      { cache: "no-store", signal: controller.signal }
-    );
-    const responseTimeMs = Date.now() - start;
-    if (!res.ok) {
-      return {
-        data: null,
-        ok: false,
-        statusCode: res.status,
-        responseTimeMs,
-        error: `http_${res.status}`,
-      } satisfies WpFetchResult;
-    }
+  const hosts = domain.startsWith("www.") ? [domain] : [domain, `www.${domain}`];
+  let last: WpFetchResult | null = null;
 
-    let json: unknown;
+  for (const host of hosts) {
+    const start = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      json = await res.json();
-    } catch {
+      const res = await fetch(
+        `https://${host}/wp-json/dashboard/v1/updates?key=${encodeURIComponent(apiKey)}&_=${Date.now()}`,
+        { cache: "no-store", signal: controller.signal }
+      );
+      const responseTimeMs = Date.now() - start;
+      if (!res.ok) {
+        last = {
+          data: null,
+          ok: false,
+          statusCode: res.status,
+          responseTimeMs,
+          error: `http_${res.status}`,
+          host,
+        };
+        continue;
+      }
+
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch {
+        last = {
+          data: null,
+          ok: false,
+          statusCode: res.status,
+          responseTimeMs,
+          error: "invalid_json",
+          host,
+        };
+        continue;
+      }
+
+      const parsed = WpSiteDataSchema.safeParse(json);
+      if (!parsed.success) {
+        last = {
+          data: null,
+          ok: false,
+          statusCode: res.status,
+          responseTimeMs,
+          error: "schema_mismatch",
+          host,
+        };
+        continue;
+      }
+
       return {
-        data: null,
-        ok: false,
+        data: parsed.data,
+        ok: true,
         statusCode: res.status,
         responseTimeMs,
-        error: "invalid_json",
-      } satisfies WpFetchResult;
-    }
-
-    const parsed = WpSiteDataSchema.safeParse(json);
-    if (!parsed.success) {
-      return {
+        error: null,
+        host,
+      };
+    } catch (e: unknown) {
+      const responseTimeMs = Date.now() - start;
+      const name = e instanceof Error ? e.name : "";
+      const error = name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
+      last = {
         data: null,
         ok: false,
-        statusCode: res.status,
+        statusCode: null,
         responseTimeMs,
-        error: "schema_mismatch",
-      } satisfies WpFetchResult;
+        error,
+        host,
+      };
+    } finally {
+      clearTimeout(timeout);
     }
+  }
 
-    return {
-      data: parsed.data,
-      ok: true,
-      statusCode: res.status,
-      responseTimeMs,
-      error: null,
-    } satisfies WpFetchResult;
-  } catch (e: unknown) {
-    const responseTimeMs = Date.now() - start;
-    const name = e instanceof Error ? e.name : "";
-    const error = name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
-    return {
+  return (
+    last ?? {
       data: null,
       ok: false,
       statusCode: null,
-      responseTimeMs,
-      error,
-    } satisfies WpFetchResult;
-  } finally {
-    clearTimeout(timeout);
-  }
+      responseTimeMs: 0,
+      error: "unknown",
+      host: domain,
+    }
+  );
 }
 
 export async function upsertWpSiteByDomain(domain: string) {
@@ -279,6 +322,7 @@ export async function upsertWpSiteByDomain(domain: string) {
     lastWpFetchError: wp.error,
     lastWpFetchStatusCode: wp.statusCode,
     lastWpFetchResponseTimeMs: wp.responseTimeMs,
+    lastWpFetchHost: wp.host,
     lastWpFetchAt: FieldValue.serverTimestamp(),
   };
 
