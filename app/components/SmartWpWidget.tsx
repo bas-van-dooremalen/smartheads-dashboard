@@ -135,19 +135,6 @@ function getUpdateCount(site: WpSite): number {
 
 type RefreshResult = "ok" | "unauthorized" | "error";
 
-async function triggerRefreshAll(adminKey: string | null): Promise<RefreshResult> {
-  const res = await fetch("/api/internal/wp-refresh", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(adminKey ? { authorization: `Bearer ${adminKey}` } : {}),
-    },
-    body: JSON.stringify({ refreshAll: true }),
-  });
-  if (res.status === 401) return "unauthorized";
-  return res.ok ? "ok" : "error";
-}
-
 async function triggerRefreshDomainWithAuth(
   domain: string,
   adminKey: string | null
@@ -162,6 +149,10 @@ async function triggerRefreshDomainWithAuth(
   });
   if (res.status === 401) return "unauthorized";
   return res.ok ? "ok" : "error";
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
@@ -700,10 +691,16 @@ export default function SmartWpWidget() {
     if (!sites.length) return;
     setLoading(true);
     try {
-      const result = await triggerRefreshAll(adminKey);
-      if (result === "unauthorized") {
-        pendingRefreshRef.current = { kind: "all" };
-        setShowAdminKeyModal(true);
+      for (const site of sites) {
+        const result = await triggerRefreshDomainWithAuth(site.domain, adminKey);
+        if (result === "unauthorized") {
+          pendingRefreshRef.current = { kind: "all" };
+          setShowAdminKeyModal(true);
+          break;
+        }
+
+        // Keep a small gap to avoid spiky traffic and rate limiting.
+        await sleep(150);
       }
     } finally {
       // UI state updates via Firestore realtime snapshot.
@@ -801,7 +798,14 @@ export default function SmartWpWidget() {
                   setLoading(true);
                   try {
                     if (pending.kind === "all") {
-                      await triggerRefreshAll(adminKey);
+                      for (const site of sites) {
+                        const result = await triggerRefreshDomainWithAuth(
+                          site.domain,
+                          adminKey
+                        );
+                        if (result === "unauthorized") break;
+                        await sleep(150);
+                      }
                     } else {
                       await triggerRefreshDomainWithAuth(pending.domain, adminKey);
                     }
