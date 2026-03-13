@@ -3,6 +3,25 @@ import { z } from "zod";
 import { adminDb } from "../firebaseAdmin";
 
 const FETCH_TIMEOUT_MS = 60_000;
+const REACHABILITY_TIMEOUT_MS = 20_000;
+
+type Reachability = {
+  ok: boolean;
+  url: string;
+  statusCode: number | null;
+  statusText: string | null;
+  responseTimeMs: number;
+  checkedAt: number;
+  error: string | null;
+};
+
+type WpFetchResult = {
+  data: unknown | null;
+  ok: boolean;
+  statusCode: number | null;
+  responseTimeMs: number;
+  error: string | null;
+};
 
 const HttpCheckSchema = z
   .object({
@@ -107,10 +126,76 @@ export function normalizeDomain(raw: unknown): string | null {
   return hostname;
 }
 
+function normalizeErrorMessage(e: unknown): string {
+  if (e instanceof Error) {
+    const msg = (e.message || e.name || "error").trim();
+    return msg.length > 200 ? msg.slice(0, 200) : msg;
+  }
+  const msg = String(e ?? "error").trim();
+  return msg.length > 200 ? msg.slice(0, 200) : msg;
+}
+
+async function checkSiteReachability(domain: string): Promise<Reachability> {
+  const url = `https://${domain}/`;
+  const start = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REACHABILITY_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "user-agent": "Smartheads-Dashboard-Monitor/3.0",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+
+    // We only care that the server responds; don't download the whole page.
+    try {
+      await res.body?.cancel();
+    } catch {
+      // Ignore.
+    }
+
+    const responseTimeMs = Date.now() - start;
+    const statusCode = typeof res.status === "number" ? res.status : null;
+
+    return {
+      ok: statusCode !== null ? statusCode < 500 : false,
+      url,
+      statusCode,
+      statusText: res.statusText || null,
+      responseTimeMs,
+      checkedAt: Date.now(),
+      error: null,
+    };
+  } catch (e: unknown) {
+    const responseTimeMs = Date.now() - start;
+    const name = e instanceof Error ? e.name : "";
+    const error =
+      name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
+
+    return {
+      ok: false,
+      url,
+      statusCode: null,
+      statusText: null,
+      responseTimeMs,
+      checkedAt: Date.now(),
+      error,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function fetchWpSiteData(domain: string) {
   const apiKey = process.env.WP_DASHBOARD_API_KEY;
   if (!apiKey) throw new Error("Missing WP_DASHBOARD_API_KEY");
 
+  const start = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -118,11 +203,59 @@ export async function fetchWpSiteData(domain: string) {
       `https://${domain}/wp-json/dashboard/v1/updates?key=${encodeURIComponent(apiKey)}&_=${Date.now()}`,
       { cache: "no-store", signal: controller.signal }
     );
-    if (!res.ok) return null;
-    const json = await res.json();
+    const responseTimeMs = Date.now() - start;
+    if (!res.ok) {
+      return {
+        data: null,
+        ok: false,
+        statusCode: res.status,
+        responseTimeMs,
+        error: `http_${res.status}`,
+      } satisfies WpFetchResult;
+    }
+
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      return {
+        data: null,
+        ok: false,
+        statusCode: res.status,
+        responseTimeMs,
+        error: "invalid_json",
+      } satisfies WpFetchResult;
+    }
+
     const parsed = WpSiteDataSchema.safeParse(json);
-    if (!parsed.success) return null;
-    return parsed.data;
+    if (!parsed.success) {
+      return {
+        data: null,
+        ok: false,
+        statusCode: res.status,
+        responseTimeMs,
+        error: "schema_mismatch",
+      } satisfies WpFetchResult;
+    }
+
+    return {
+      data: parsed.data,
+      ok: true,
+      statusCode: res.status,
+      responseTimeMs,
+      error: null,
+    } satisfies WpFetchResult;
+  } catch (e: unknown) {
+    const responseTimeMs = Date.now() - start;
+    const name = e instanceof Error ? e.name : "";
+    const error = name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
+    return {
+      data: null,
+      ok: false,
+      statusCode: null,
+      responseTimeMs,
+      error,
+    } satisfies WpFetchResult;
   } finally {
     clearTimeout(timeout);
   }
@@ -131,29 +264,33 @@ export async function fetchWpSiteData(domain: string) {
 export async function upsertWpSiteByDomain(domain: string) {
   const wpSites = adminDb.collection("wpSites");
   const existing = await wpSites.where("domain", "==", domain).limit(1).get();
-  const data = await fetchWpSiteData(domain);
 
-  const payload = data
-    ? {
-        domain,
-        lastChecked: FieldValue.serverTimestamp(),
-        lastData: data,
-        ok: true,
-        status: "online",
-      }
-    : {
-        domain,
-        lastChecked: FieldValue.serverTimestamp(),
-        ok: false,
-        status: "offline",
-      };
+  const reachability = await checkSiteReachability(domain);
+
+  const wp = await fetchWpSiteData(domain);
+
+  const payload: Record<string, unknown> = {
+    domain,
+    lastChecked: FieldValue.serverTimestamp(),
+    ok: reachability.ok,
+    status: reachability.ok ? "online" : "offline",
+    reachability,
+    lastWpFetchOk: wp.ok,
+    lastWpFetchError: wp.error,
+    lastWpFetchStatusCode: wp.statusCode,
+    lastWpFetchResponseTimeMs: wp.responseTimeMs,
+    lastWpFetchAt: FieldValue.serverTimestamp(),
+  };
+
+  if (wp.data) {
+    payload.lastData = wp.data;
+  }
 
   if (existing.empty) {
     await wpSites.add(payload);
-    return { domain, created: true, ok: !!data };
+    return { domain, created: true, ok: reachability.ok };
   }
 
   await existing.docs[0]!.ref.set(payload, { merge: true });
-  return { domain, created: false, ok: !!data };
+  return { domain, created: false, ok: reachability.ok };
 }
-

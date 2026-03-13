@@ -75,6 +75,17 @@ interface WpSite {
   ok: boolean;
   status?: string;
   lastData?: WpSiteData;
+  reachability?: {
+    ok: boolean;
+    url: string;
+    statusCode: number | null;
+    statusText: string | null;
+    responseTimeMs: number;
+    checkedAt: number;
+    error: string | null;
+  };
+  lastWpFetchOk?: boolean;
+  lastWpFetchError?: string | null;
 }
 
 type FilterType = "all" | "core" | "plugins" | "themes" | "http" | "ssl";
@@ -104,7 +115,15 @@ function getSiteName(site: WpSite): string {
 }
 
 function isOnline(site: WpSite): boolean {
-  return site.ok === true;
+  return (site.reachability?.ok ?? site.ok) === true;
+}
+
+function offlineReason(site: WpSite): string {
+  const r = site.reachability;
+  if (!r) return "Site reageert niet";
+  if (r.error) return r.error;
+  if (r.statusCode !== null) return `HTTP ${r.statusCode}`;
+  return "Site reageert niet";
 }
 
 function getUpdateCount(site: WpSite): number {
@@ -153,7 +172,7 @@ function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
     const domain = site.domain;
 
     if (!isOnline(site)) {
-      alerts.push({ siteId: site.id, siteName: name, domain, type: "offline", label: "Offline", detail: "Site reageert niet" });
+      alerts.push({ siteId: site.id, siteName: name, domain, type: "offline", label: "Offline", detail: offlineReason(site) });
     }
 
     if (!site.lastData) continue;
@@ -532,7 +551,9 @@ function PaginatedTable({
 
                 {/* Status */}
                 <td className="px-4 py-5 text-center">
-                  <Badge color={isOnline(s) ? "custom" : "red"}>{s.status ?? (isOnline(s) ? "online" : "offline")}</Badge>
+                  <span title={!isOnline(s) ? offlineReason(s) : undefined}>
+                    <Badge color={isOnline(s) ? "custom" : "red"}>{s.status ?? (isOnline(s) ? "online" : "offline")}</Badge>
+                  </span>
                 </td>
 
                 {/* Acties */}
@@ -961,7 +982,11 @@ export default function SmartWpWidget() {
                     />
                   )}
                 </div>
-              ) : <Badge color="red">Offline</Badge>}
+              ) : (
+                <span title={offlineReason(s)}>
+                  <Badge color="red">Offline</Badge>
+                </span>
+              )}
             </div>
           ))}
         </div>
