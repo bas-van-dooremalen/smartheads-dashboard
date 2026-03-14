@@ -5,6 +5,8 @@ import { normalizeDomain, upsertWpSiteByDomain } from "../../../lib/wpDashboardR
 
 const limit = pLimit(5);
 
+export const runtime = "nodejs";
+
 export async function GET(req: Request) {
   const auth = req.headers.get("authorization");
 
