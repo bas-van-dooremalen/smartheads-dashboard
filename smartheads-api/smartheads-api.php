@@ -8,7 +8,9 @@ Author: Bas / Smartheads
 
 if (!defined('ABSPATH')) exit;
 
-// â”€â”€â”€ Configuratie â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// Configuratie
+// -----------------------------------------------------------------------------
 
 define('SH_DASHBOARD_API_KEY',   'f9e1c4b7a3d8f0c2e6b1a9d4f7c3e8a1b6d9f2c4e7a0b3d5f8c1e4a7b2d9f3c6e1a4b7d0f2c9e5a1d4b8f0c3e6a9d2f5b1c7e4a0f8d3');
 define('SH_MONITOR_POST_TYPES',  ['page', 'post']);
@@ -18,7 +20,9 @@ define('SH_HTTP_TIMEOUT',        8);
 define('SH_CRON_HOOK',           'sh_run_http_health_check');
 define('SH_CRON_INTERVAL',       'sh_every_30_minutes');
 
-// â”€â”€â”€ Activatie / Deactivatie â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// Activatie / deactivatie
+// -----------------------------------------------------------------------------
 
 register_activation_hook(__FILE__, 'sh_plugin_activate');
 register_deactivation_hook(__FILE__, 'sh_plugin_deactivate');
@@ -35,7 +39,9 @@ function sh_plugin_deactivate(): void {
     }
 }
 
-// â”€â”€â”€ Custom cron interval â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// Custom cron interval
+// -----------------------------------------------------------------------------
 
 add_filter('cron_schedules', function(array $schedules): array {
     $schedules[SH_CRON_INTERVAL] = [
@@ -45,7 +51,9 @@ add_filter('cron_schedules', function(array $schedules): array {
     return $schedules;
 });
 
-// â”€â”€â”€ Cron planning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// Cron planning
+// -----------------------------------------------------------------------------
 
 function sh_schedule_cron(): void {
     if (!wp_next_scheduled(SH_CRON_HOOK)) {
@@ -55,7 +63,9 @@ function sh_schedule_cron(): void {
 add_action('init', 'sh_schedule_cron');
 add_action(SH_CRON_HOOK, 'sh_run_and_cache_http_health');
 
-// â”€â”€â”€ REST route â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// REST route
+// -----------------------------------------------------------------------------
 
 add_action('rest_api_init', function(): void {
     register_rest_route('dashboard/v1', '/updates', [
@@ -65,7 +75,9 @@ add_action('rest_api_init', function(): void {
     ]);
 });
 
-// â”€â”€â”€ CORS headers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// CORS headers
+// -----------------------------------------------------------------------------
 
 add_action('rest_api_init', function(): void {
     remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
@@ -77,7 +89,9 @@ add_action('rest_api_init', function(): void {
     });
 }, 15);
 
-// â”€â”€â”€ Helper: Offline log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// Helper: offline log
+// -----------------------------------------------------------------------------
 
 function sh_get_offline_log(): array {
     return get_option('sh_offline_log', []);
@@ -106,7 +120,9 @@ function sh_is_ssl_error_message(string $message): bool {
         || strpos($m, 'unable to verify the first certificate') !== false;
 }
 
-// â”€â”€â”€ Async HTTP health check (via WP Cron) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// Async HTTP health check (via WP Cron)
+// -----------------------------------------------------------------------------
 
 function sh_run_and_cache_http_health(): void {
     @set_time_limit(300);
@@ -160,7 +176,7 @@ function sh_run_and_cache_http_health(): void {
             $status      = (int) wp_remote_retrieve_response_code($response);
             $status_text = wp_remote_retrieve_response_message($response);
 
-            // â”€â”€ Wat telt als echte fout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // Wat telt als echte fout:
             // 5xx = serverfout          â†’ altijd een echte fout
             // 404 = pagina niet gevonden â†’ echte fout (inhoud verdwenen)
             // 403 = toegang geweigerd   â†’ echte fout
@@ -211,7 +227,9 @@ function sh_run_and_cache_http_health(): void {
     update_option('sh_cached_http_health', $result, false);
 }
 
-// â”€â”€â”€ API Callback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -----------------------------------------------------------------------------
+// API callback
+// -----------------------------------------------------------------------------
 
 function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Response {
 
