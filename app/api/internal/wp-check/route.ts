@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import pLimit from "p-limit";
 import { adminDb } from "../../../lib/firebaseAdmin";
-import { normalizeDomain, upsertWpSiteByDomain } from "../../../lib/server/wpDashboardRefresh";
+import { normalizeDomain, upsertWpSiteByDomain } from "../../../lib/wpDashboardRefresh";
 
 const limit = pLimit(5);
 

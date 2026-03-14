@@ -96,7 +96,7 @@ interface CriticalAlert {
   siteId: string;
   siteName: string;
   domain: string;
-  type: "offline" | "ssl";
+  type: "offline" | "ssl" | "tls";
   label: string;
   detail: string;
 }
@@ -124,6 +124,26 @@ function offlineReason(site: WpSite): string {
   if (r.error) return r.error;
   if (r.statusCode !== null) return `HTTP ${r.statusCode}`;
   return "Site reageert niet";
+}
+
+function isTlsValidationErrorMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("unable_to_verify_leaf_signature") ||
+    m.includes("unable to verify the first certificate") ||
+    m.includes("unable to get local issuer certificate") ||
+    m.includes("self signed certificate") ||
+    m.includes("hostname/ip does not match certificate") ||
+    m.includes("cert_has_expired") ||
+    m.includes("certificate has expired")
+  );
+}
+
+function statusLabel(site: WpSite): string {
+  const s = (site.status ?? "").toLowerCase();
+  if (s === "tls") return "TLS";
+  if (s) return s;
+  return isOnline(site) ? "online" : "offline";
 }
 
 function getUpdateCount(site: WpSite): number {
@@ -163,7 +183,16 @@ function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
     const domain = site.domain;
 
     if (!isOnline(site)) {
-      alerts.push({ siteId: site.id, siteName: name, domain, type: "offline", label: "Offline", detail: offlineReason(site) });
+      const detail = offlineReason(site);
+      const isTls = (site.status ?? "").toLowerCase() === "tls" || isTlsValidationErrorMessage(detail);
+      alerts.push({
+        siteId: site.id,
+        siteName: name,
+        domain,
+        type: isTls ? "tls" : "offline",
+        label: isTls ? "TLS" : "Offline",
+        detail,
+      });
     }
 
     if (!site.lastData) continue;
@@ -345,7 +374,7 @@ function PaginatedTable({
                 {/* Status */}
                 <td className="px-4 py-5 text-center">
                   <span title={!isOnline(s) ? offlineReason(s) : undefined}>
-                    <Badge color={isOnline(s) ? "custom" : "red"}>{s.status ?? (isOnline(s) ? "online" : "offline")}</Badge>
+                    <Badge color={isOnline(s) ? "custom" : "red"}>{statusLabel(s)}</Badge>
                   </span>
                 </td>
 
@@ -740,7 +769,7 @@ export default function SmartWpWidget() {
                         <span className="text-xs font-mono font-bold">PHP {s.lastData.php}</span>
                       </div>
                     )}
-                    <Badge color="custom">{s.status ?? "online"}</Badge>
+                    <Badge color="custom">{statusLabel(s)}</Badge>
                     {s.lastData.ssl && <SslBadge ssl={s.lastData.ssl} />}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -762,7 +791,7 @@ export default function SmartWpWidget() {
                 </div>
               ) : (
                 <span title={offlineReason(s)}>
-                  <Badge color="red">Offline</Badge>
+                  <Badge color="red">{statusLabel(s)}</Badge>
                 </span>
               )}
             </div>

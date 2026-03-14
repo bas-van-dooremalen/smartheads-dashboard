@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { z } from "zod";
 import { adminDb } from "../../../lib/firebaseAdmin";
-import { normalizeDomain, upsertWpSiteByDomain } from "../../../lib/server/wpDashboardRefresh";
+import { normalizeDomain, upsertWpSiteByDomain } from "../../../lib/wpDashboardRefresh";
 
 export const runtime = "nodejs";
 
@@ -74,3 +74,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

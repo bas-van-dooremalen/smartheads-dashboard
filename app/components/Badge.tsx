@@ -4,7 +4,7 @@ import React from "react";
 
 interface BadgeProps {
   children: React.ReactNode;
-  color: string;
+  color: "red" | "custom";
 }
 
 export default function Badge({ children, color }: BadgeProps) {

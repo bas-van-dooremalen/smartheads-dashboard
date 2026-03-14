@@ -2,7 +2,7 @@
 /*
 Plugin Name: Smartheads Dashboard Update API
 Description: Beveiligde API voor Smartheads Dashboard om Core, Plugin, Theme status, HTTP health, SSL en offline history uit te lezen.
-Version: 3.1
+Version: 3.2
 Author: Bas / Smartheads
 */
 
@@ -115,11 +115,81 @@ function sh_check_ssl(string $domain): array {
         ];
     }
 
+    // 1) TLS-validatie (chain + hostname). Dit is de check die Node.js fetch ook doet.
+    $tls_ok     = null;
+    $tls_error  = null;
+    $tls_method = null;
+
+    if (function_exists('curl_init')) {
+        $tls_method = 'curl';
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => "https://{$host}/",
+            CURLOPT_NOBODY         => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER         => false,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_USERAGENT      => 'Smartheads-Dashboard-Monitor/3.2',
+        ]);
+        $res = curl_exec($ch);
+        if ($res === false) {
+            $tls_ok    = false;
+            $errno     = (int) curl_errno($ch);
+            $tls_error = trim((string) curl_error($ch));
+            if ($tls_error === '') $tls_error = "cURL TLS error ({$errno})";
+        } else {
+            $tls_ok = true;
+        }
+        curl_close($ch);
+    } else {
+        $tls_method = 'stream';
+
+        $ca_file = ini_get('openssl.cafile') ?: ini_get('curl.cainfo') ?: null;
+        $ssl_ctx = [
+            'capture_peer_cert' => true,
+            'verify_peer'       => true,
+            'verify_peer_name'  => true,
+            'allow_self_signed' => false,
+            'SNI_enabled'       => true,
+            'peer_name'         => $host,
+        ];
+        if (is_string($ca_file) && $ca_file !== '') {
+            $ssl_ctx['cafile'] = $ca_file;
+        }
+
+        $context_verify = stream_context_create(['ssl' => $ssl_ctx]);
+        $errno  = 0;
+        $errstr = '';
+        $socket_verify = @stream_socket_client(
+            "ssl://{$host}:443",
+            $errno,
+            $errstr,
+            10,
+            STREAM_CLIENT_CONNECT,
+            $context_verify
+        );
+
+        if ($socket_verify) {
+            $tls_ok = true;
+            fclose($socket_verify);
+        } else {
+            $tls_ok    = false;
+            $tls_error = $errstr ?: "TLS validatie fout ({$errno})";
+        }
+    }
+
+    // 2) Certificaat uitlezen (altijd, ook als TLS-validatie faalt)
     $context = stream_context_create([
         'ssl' => [
             'capture_peer_cert' => true,
             'verify_peer'       => false,
             'verify_peer_name'  => false,
+            'SNI_enabled'       => true,
+            'peer_name'         => $host,
         ]
     ]);
 
@@ -141,6 +211,9 @@ function sh_check_ssl(string $domain): array {
             'expiry_date'    => null,
             'status'         => 'error',
             'message'        => "Kon geen SSL verbinding maken: {$errstr}",
+            'tls_ok'         => $tls_ok,
+            'tls_error'      => $tls_error,
+            'tls_method'     => $tls_method,
         ];
     }
 
@@ -158,6 +231,9 @@ function sh_check_ssl(string $domain): array {
             'expiry_date'    => null,
             'status'         => 'error',
             'message'        => 'Kon vervaldatum niet uitlezen uit certificaat.',
+            'tls_ok'         => $tls_ok,
+            'tls_error'      => $tls_error,
+            'tls_method'     => $tls_method,
         ];
     }
 
@@ -168,6 +244,9 @@ function sh_check_ssl(string $domain): array {
     if ($expired) {
         $status  = 'critical';
         $message = "Certificaat is verlopen op {$expiry_date}.";
+    } elseif ($tls_ok === false) {
+        $status  = 'error';
+        $message = "TLS-validatie mislukt ({$tls_method}): {$tls_error}";
     } elseif ($days_remaining <= SH_SSL_CRITICAL_DAYS) {
         $status  = 'critical';
         $message = "Certificaat verloopt over {$days_remaining} dagen ({$expiry_date}) — actie vereist!";
@@ -177,11 +256,14 @@ function sh_check_ssl(string $domain): array {
     }
 
     return [
-        'valid'          => !$expired,
+        'valid'          => ($tls_ok !== false) && !$expired,
         'days_remaining' => $days_remaining,
         'expiry_date'    => $expiry_date,
         'status'         => $status,
         'message'        => $message,
+        'tls_ok'         => $tls_ok,
+        'tls_error'      => $tls_error,
+        'tls_method'     => $tls_method,
     ];
 }
 
