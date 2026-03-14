@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
+import net from "node:net";
 import { adminDb } from "./firebaseAdmin";
 
 const FETCH_TIMEOUT_MS = 60_000;
@@ -24,24 +25,24 @@ type WpFetchResult = {
   host: string;
 };
 
-function isTlsValidationErrorMessage(message: string | null): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  return (
-    m.includes("unable_to_verify_leaf_signature") ||
-    m.includes("unable to verify the first certificate") ||
-    m.includes("unable to get local issuer certificate") ||
-    m.includes("self signed certificate") ||
-    m.includes("hostname/ip does not match certificate") ||
-    m.includes("cert_has_expired") ||
-    m.includes("certificate has expired")
-  );
-}
+function checkTcpConnect(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port });
+    const done = (ok: boolean) => {
+      try {
+        socket.removeAllListeners();
+        socket.destroy();
+      } catch {
+        // Ignore.
+      }
+      resolve(ok);
+    };
 
-function deriveSiteStatus(reachability: Reachability): "online" | "offline" | "tls" {
-  if (reachability.ok) return "online";
-  if (isTlsValidationErrorMessage(reachability.error)) return "tls";
-  return "offline";
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
 }
 
 const HttpCheckSchema = z
@@ -220,6 +221,22 @@ async function checkSiteReachability(domain: string): Promise<Reachability> {
       const responseTimeMs = Date.now() - start;
       const name = e instanceof Error ? e.name : "";
       const error = name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
+
+      // Fallback: if TLS validation fails (or any fetch error), but TCP:443 is reachable,
+      // treat the site as online for the simple online/offline status.
+      const tcpOk = await checkTcpConnect(host, 443, 5_000);
+      if (tcpOk) {
+        return {
+          ok: true,
+          url,
+          statusCode: null,
+          statusText: "tcp",
+          responseTimeMs,
+          checkedAt: Date.now(),
+          error: null,
+        };
+      }
+
       lastFailure = {
         ok: false,
         url,
@@ -348,13 +365,12 @@ export async function upsertWpSiteByDomain(domain: string) {
   const reachability = await checkSiteReachability(domain);
 
   const wp = await fetchWpSiteData(domain);
-  const status = deriveSiteStatus(reachability);
 
   const payload: Record<string, unknown> = {
     domain,
     lastChecked: FieldValue.serverTimestamp(),
     ok: reachability.ok,
-    status,
+    status: reachability.ok ? "online" : "offline",
     reachability,
     lastWpFetchOk: wp.ok,
     lastWpFetchError: wp.error,

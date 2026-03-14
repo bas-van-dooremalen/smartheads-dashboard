@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { db } from "@/app/lib/firebaseClient";
@@ -8,16 +8,14 @@ import {
 import { collection, onSnapshot } from "firebase/firestore";
 import Card from "./Card";
 import Badge from "./Badge";
-import StaticModal from "./StaticModal";
 import { useAlertLog, AlertLogPanel, syncAlertsToLog } from "./AlertLog";
 
-// ─── Config ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const PAGE_SIZE           = 7;
 const SLIDE_INTERVAL_MS   = 8_500;
-const SSL_WARN_DAYS       = 30;
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface HttpCheck {
   url: string;
@@ -50,23 +48,8 @@ interface OfflineLog {
   events: OfflineEvent[];
 }
 
-interface Ssl {
-  valid: boolean;
-  days_remaining: number | null;
-  expiry_date: string | null;
-  status: "ok" | "critical" | "error";
-  message: string;
-}
-
 interface WpSiteData {
   site?: string;
-  php?: string;
-  core?: { current: string; needs_update: boolean };
-  plugins?: { name: string; needs_update: boolean }[];
-  themes?: { name: string; needs_update: boolean }[];
-  http_health?: HttpHealth;
-  ssl?: Ssl;
-  offline_log?: OfflineLog;
 }
 
 interface WpSite {
@@ -88,20 +71,18 @@ interface WpSite {
   lastWpFetchError?: string | null;
 }
 
-type FilterType = "all" | "core" | "plugins" | "themes" | "ssl";
 type LayoutType = "grid" | "list";
-type SortType   = "name" | "updates";
 
 interface CriticalAlert {
   siteId: string;
   siteName: string;
   domain: string;
-  type: "offline" | "ssl" | "tls";
+  type: "offline";
   label: string;
   detail: string;
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function decodeSiteName(name: string): string {
   if (typeof document === "undefined") return name;
@@ -126,31 +107,8 @@ function offlineReason(site: WpSite): string {
   return "Site reageert niet";
 }
 
-function isTlsValidationErrorMessage(message: string): boolean {
-  const m = message.toLowerCase();
-  return (
-    m.includes("unable_to_verify_leaf_signature") ||
-    m.includes("unable to verify the first certificate") ||
-    m.includes("unable to get local issuer certificate") ||
-    m.includes("self signed certificate") ||
-    m.includes("hostname/ip does not match certificate") ||
-    m.includes("cert_has_expired") ||
-    m.includes("certificate has expired")
-  );
-}
-
 function statusLabel(site: WpSite): string {
-  const s = (site.status ?? "").toLowerCase();
-  if (s === "tls") return "TLS";
-  if (s) return s;
   return isOnline(site) ? "online" : "offline";
-}
-
-function getUpdateCount(site: WpSite): number {
-  let count = site.lastData?.core?.needs_update ? 1 : 0;
-  count += site.lastData?.plugins?.filter((p) => p.needs_update).length ?? 0;
-  count += site.lastData?.themes?.filter((t) => t.needs_update).length ?? 0;
-  return count;
 }
 
 type RefreshResult = "ok" | "unauthorized" | "error";
@@ -184,35 +142,21 @@ function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
 
     if (!isOnline(site)) {
       const detail = offlineReason(site);
-      const isTls = (site.status ?? "").toLowerCase() === "tls" || isTlsValidationErrorMessage(detail);
       alerts.push({
         siteId: site.id,
         siteName: name,
         domain,
-        type: isTls ? "tls" : "offline",
-        label: isTls ? "TLS" : "Offline",
+        type: "offline",
+        label: "Offline",
         detail,
       });
-    }
-
-    if (!site.lastData) continue;
-
-    if (site.lastData.ssl) {
-      const { status, days_remaining } = site.lastData.ssl;
-      if (status === "error") {
-        alerts.push({ siteId: site.id, siteName: name, domain, type: "ssl", label: "SSL fout", detail: "Certificaat ongeldig" });
-      } else if (status === "critical") {
-        alerts.push({ siteId: site.id, siteName: name, domain, type: "ssl", label: "SSL verloopt", detail: `Nog ${days_remaining} dagen` });
-      } else if (days_remaining !== null && days_remaining <= SSL_WARN_DAYS) {
-        alerts.push({ siteId: site.id, siteName: name, domain, type: "ssl", label: "SSL binnenkort", detail: `Nog ${days_remaining} dagen` });
-      }
     }
   }
 
   return alerts;
 }
 
-// ─── Badge class helpers ───────────────────────────────────────────────────────
+// â”€â”€â”€ Badge class helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const badgeBase    = "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-black uppercase tracking-wider";
 const badgeNeutral = `${badgeBase} bg-white/5 border-white/10 text-neutral-300`;
@@ -221,22 +165,9 @@ const badgeOrange  = `${badgeBase} bg-orange-500/10 border-orange-500/20 text-or
 
 // (Alert type config/sidebar removed for a simpler table view)
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // (Modal helpers removed for a simpler table view)
-
-function SslBadge({ ssl }: { ssl: Ssl }) {
-  const lockIcon = (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
-  );
-  if (ssl.status === "ok") {
-    return <div className={badgeNeutral}>{lockIcon}<span>SSL {ssl.days_remaining}d</span></div>;
-  }
-  const label = ssl.status === "error" ? "SSL fout" : ssl.days_remaining !== null && ssl.days_remaining < 0 ? "SSL verlopen" : `SSL ${ssl.days_remaining}d`;
-  return <div className={badgeRed}>{lockIcon}<span>{label}</span></div>;
-}
 
 // (HTTP health badges removed for a simpler table view)
 
@@ -253,22 +184,18 @@ function EmptyState({ label }: { label: string }) {
   );
 }
 
-// ─── Critical Alerts Panel ─────────────────────────────────────────────────────
+// â”€â”€â”€ Critical Alerts Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // (Critical alerts sidebar removed for a simpler table view)
 
-// ─── Table with pagination/slides ─────────────────────────────────────────────
+// â”€â”€â”€ Table with pagination/slides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function PaginatedTable({
   sites,
   onDeleteConfirm,
-  expandedSite,
-  setExpandedSite,
 }: {
   sites: WpSite[];
   onDeleteConfirm: (id: string) => void;
-  expandedSite: string | null;
-  setExpandedSite: (v: string | null) => void;
 }) {
   const totalPages = Math.ceil(sites.length / PAGE_SIZE);
   const [page, setPage]     = useState(0);
@@ -324,7 +251,7 @@ function PaginatedTable({
         <table className="min-w-full divide-y divide-white/10">
           <thead>
             <tr className="bg-neutral-900">
-              {["Site","PHP","Core","Plugins","Themes","SSL","Status",""].map((h) => (
+              {["Site", "Status", ""].map((h) => (
                 <th key={h} className={`px-4 py-4 text-xs font-black uppercase tracking-wider text-neutral-400 ${h === "Site" ? "text-left px-6" : ""}`}>{h}</th>
               ))}
             </tr>
@@ -337,38 +264,6 @@ function PaginatedTable({
                 <td className="px-6 py-5 whitespace-nowrap">
                   <a href={`https://${s.domain}/wp-admin`} target="_blank" rel="noopener noreferrer" className="font-bold text-base text-white hover:text-[#20d67b] transition-colors">{getSiteName(s)}</a>
                   <p className="text-xs font-mono text-neutral-500 mt-0.5">{s.domain}</p>
-                </td>
-
-                {/* PHP */}
-                <td className="px-4 py-5 text-center">
-                  {s.lastData?.php ? (
-                    <span className={`${badgeBase} ${s.lastData.php.startsWith("8") ? "bg-white/5 border-white/10 text-neutral-300" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"}`}>{s.lastData.php}</span>
-                  ) : <span className="text-neutral-600 text-sm font-mono">—</span>}
-                </td>
-
-                {/* Core */}
-                <td className="px-4 py-5 text-center">
-                  {s.lastData?.core?.needs_update ? <Badge color="yellow">!</Badge> : <Badge color="custom">OK</Badge>}
-                </td>
-
-                {/* Plugins */}
-                <td className="px-4 py-5 text-center text-base font-bold text-white">
-                  {s.lastData?.plugins?.filter((p) => p.needs_update).length ?? 0}
-                </td>
-
-                {/* Themes */}
-                <td className="px-4 py-5 text-center text-base font-bold text-white">
-                  {s.lastData?.themes?.filter((t) => t.needs_update).length ?? 0}
-                </td>
-
-                {/* SSL */}
-                <td className="px-4 py-5 text-center">
-                  {s.lastData?.ssl ? (
-                    <span title={s.lastData.ssl.message} className={`${badgeBase} ${s.lastData.ssl.status === "critical" || s.lastData.ssl.status === "error" ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-white/5 border-white/10 text-neutral-300"}`}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                      {s.lastData.ssl.status === "ok" ? `${s.lastData.ssl.days_remaining}d` : s.lastData.ssl.status === "error" ? "err" : `${s.lastData.ssl.days_remaining}d!`}
-                    </span>
-                  ) : <span className="text-neutral-600 text-sm font-mono">—</span>}
                 </td>
 
                 {/* Status */}
@@ -390,25 +285,11 @@ function PaginatedTable({
         </table>
       </div>
 
-      {/* StaticModal for expanded plugin/theme */}
-      {expandedSite && (() => {
-        const siteId = expandedSite.replace(/-[pt]$/, "");
-        const site   = sites.find((s) => s.id === siteId);
-        if (!site?.lastData) return null;
-        return (
-          <StaticModal
-            title={expandedSite.endsWith("-p") ? "Plugin Updates" : "Theme Updates"}
-            items={(expandedSite.endsWith("-p") ? site.lastData.plugins : site.lastData.themes)?.filter((item) => item.needs_update) ?? []}
-            onClose={() => setExpandedSite(null)}
-          />
-        );
-      })()}
-
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-6 py-4 border-t border-white/5">
           <span className="text-xs font-mono text-neutral-500">
-            Pagina {page + 1} van {totalPages} &nbsp;·&nbsp; {sites.length} sites
+            Pagina {page + 1} van {totalPages} &nbsp;Â·&nbsp; {sites.length} sites
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -460,17 +341,14 @@ function PaginatedTable({
   );
 }
 
-// ─── Main Widget ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main Widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function SmartWpWidget() {
   const [input, setInput]               = useState("");
   const [inputError, setInputError]     = useState(false);
   const [sites, setSites]               = useState<WpSite[]>([]);
   const [loading, setLoading]           = useState(false);
-  const [filter, setFilter]             = useState<FilterType>("all");
   const [layout, setLayout]             = useState<LayoutType>("list");
-  const [sortBy, setSortBy]             = useState<SortType>("name");
-  const [expandedSite, setExpandedSite] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [lastSync, setLastSync]         = useState<Date | null>(null);
   const [showLog, setShowLog]           = useState(false);
@@ -478,14 +356,13 @@ export default function SmartWpWidget() {
   const [showAdminKeyModal, setShowAdminKeyModal] = useState(false);
   const pendingRefreshRef = useRef<null | { kind: "all" } | { kind: "domain"; domain: string }>(null);
 
-  // ─── Alert Log ──────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Alert Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { log, addEntry, resolveEntry, clearLog } = useAlertLog();
 
-  // ─── Keyboard shortcuts ──────────────────────────────────────────────────────
+  // â”€â”€â”€ Keyboard shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setExpandedSite(null);
         setDeleteConfirm(null);
         setShowAdminKeyModal(false);
       }
@@ -503,7 +380,7 @@ export default function SmartWpWidget() {
     }
   }, []);
 
-  // ─── Firebase realtime sync ──────────────────────────────────────────────────
+  // â”€â”€â”€ Firebase realtime sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "wpSites"), (snapshot) => {
       const sitesData = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Omit<WpSite, "id">) }));
@@ -513,7 +390,7 @@ export default function SmartWpWidget() {
     return () => unsubscribe();
   }, []);
 
-  // ─── Refresh all sites ───────────────────────────────────────────────────────
+  // â”€â”€â”€ Refresh all sites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const refreshAllSites = useCallback(async () => {
     if (!sites.length) return;
     setLoading(true);
@@ -540,7 +417,7 @@ export default function SmartWpWidget() {
     return () => clearInterval(interval);
   }, [refreshAllSites]);
 
-  // ─── Add site ────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Add site â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function handleAddSite() {
     const trimmed = input.trim();
     if (!trimmed) { setInputError(true); setTimeout(() => setInputError(false), 500); return; }
@@ -560,33 +437,18 @@ export default function SmartWpWidget() {
     setLoading(false);
   }
 
-  // ─── Processed sites ─────────────────────────────────────────────────────────
+  // â”€â”€â”€ Processed sites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const processedSites = useMemo(() => {
-    return sites
-      .filter((s) => {
-        if (filter === "all")     return true;
-        if (!s.lastData)          return false;
-        if (filter === "core")    return s.lastData.core?.needs_update;
-        if (filter === "plugins") return s.lastData.plugins?.some((p) => p.needs_update);
-        if (filter === "themes")  return s.lastData.themes?.some((t) => t.needs_update);
-        if (filter === "ssl")     return s.lastData.ssl?.status === "critical" || s.lastData.ssl?.status === "error";
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === "name") return getSiteName(a).localeCompare(getSiteName(b));
-        return getUpdateCount(b) - getUpdateCount(a);
-      });
-  }, [sites, filter, sortBy]);
+    return [...sites].sort((a, b) => getSiteName(a).localeCompare(getSiteName(b)));
+  }, [sites]);
 
   const criticalAlerts = useMemo(() => buildCriticalAlerts(sites), [sites]);
 
-  // ─── Sync alerts → log ───────────────────────────────────────────────────────
+  // â”€â”€â”€ Sync alerts â†’ log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     syncAlertsToLog(criticalAlerts, log, addEntry);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [criticalAlerts]);
-
-  const sslErrorSites  = useMemo(() => sites.filter((s) => s.lastData?.ssl?.status === "critical" || s.lastData?.ssl?.status === "error").length, [sites]);
 
   // Aantal onopgeloste log-entries voor de badge op de knop
   const unresolvedLogCount = useMemo(() => log.filter((e) => !e.resolvedAt).length, [log]);
@@ -672,15 +534,7 @@ export default function SmartWpWidget() {
               <span className="text-neutral-600 text-xl font-mono not-italic ml-1">({sites.length})</span>
               <span className="w-2 h-2 rounded-full bg-[#20d67b] animate-pulse" />
             </h2>
-            <div className="flex flex-wrap gap-2">
-              {(["all", "core", "plugins", "themes"] as const).map((f) => (
-                <button key={f} onClick={() => setFilter(f)} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border ${filter === f ? "bg-[#20d67b] text-black border-[#20d67b]" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>{f}</button>
-              ))}
-              <button onClick={() => setFilter("ssl")} className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-all border flex items-center gap-2 ${filter === "ssl" ? "bg-red-500 text-white border-red-500" : sslErrorSites > 0 ? "bg-red-500/10 text-red-400 border-red-500/30 hover:border-red-500/50" : "bg-white/5 text-neutral-400 border-white/5 hover:border-white/20"}`}>
-                SSL
-                {sslErrorSites > 0 && <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-black ${filter === "ssl" ? "bg-white text-red-500" : "bg-red-500 text-white"}`}>{sslErrorSites}</span>}
-              </button>
-            </div>
+            <div className="flex flex-wrap gap-2" />
           </div>
 
           <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto">
@@ -718,10 +572,6 @@ export default function SmartWpWidget() {
               <button onClick={() => setLayout("list")} aria-label="List layout" className={`p-2.5 rounded-xl transition-all ${layout === "list" ? "bg-white/10 text-[#20d67b]" : "text-neutral-600 hover:text-neutral-400"}`}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
               </button>
-              <div className="w-[1px] h-4 bg-white/10 mx-2" />
-              <button onClick={() => setSortBy((prev) => (prev === "name" ? "updates" : "name"))} className="px-4 text-xs font-black text-neutral-400 uppercase tracking-wider hover:text-white transition-colors">
-                Sort: <span className="text-[#20d67b]">{sortBy}</span>
-              </button>
             </div>
 
             <div className="flex gap-2 flex-1 xl:flex-none min-w-[260px]">
@@ -739,12 +589,12 @@ export default function SmartWpWidget() {
       {/* Content */}
       {processedSites.length === 0 ? (
         <div className="py-20 flex flex-col items-center justify-center border border-dashed border-white/5 rounded-[2rem] bg-white/[0.02]">
-          <p className="text-neutral-500 text-xs font-black uppercase tracking-[0.2em]">Geen updates gevonden</p>
+          <p className="text-neutral-500 text-xs font-black uppercase tracking-[0.2em]">Geen sites gevonden</p>
         </div>
 
       ) : layout === "grid" ? (
 
-        // ─── Grid ──────────────────────────────────────────────────────────────
+        // â”€â”€â”€ Grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {processedSites.map((s) => (
             <div key={s.id} className="group relative bg-neutral-950/40 border border-white/5 transition-all hover:border-[#20d67b]/30 p-8 rounded-[2rem] flex flex-col">
@@ -757,59 +607,23 @@ export default function SmartWpWidget() {
                   <p className="text-xs font-mono text-neutral-500 mt-0.5">{s.domain}</p>
                 </a>
               </div>
-              {isOnline(s) && s.lastData ? (
-                <div className="mt-auto flex flex-col gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-xl border border-white/10">
-                      <div className={`w-1.5 h-1.5 rounded-full ${s.lastData.core?.needs_update ? "bg-yellow-500 animate-pulse" : "bg-[#20d67b]"}`} />
-                      <span className="text-xs font-mono font-bold text-neutral-300">V{s.lastData.core?.current}</span>
-                    </div>
-                    {s.lastData.php && (
-                      <div className={`flex items-center px-3 py-1.5 rounded-xl border ${s.lastData.php.startsWith("8") ? "bg-white/5 border-white/10 text-neutral-300" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"}`}>
-                        <span className="text-xs font-mono font-bold">PHP {s.lastData.php}</span>
-                      </div>
-                    )}
-                    <Badge color="custom">{statusLabel(s)}</Badge>
-                    {s.lastData.ssl && <SslBadge ssl={s.lastData.ssl} />}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); if (s.lastData?.plugins?.some((p) => p.needs_update)) setExpandedSite(`${s.id}-p`); }} className={`px-3 py-1.5 rounded-xl border transition-all flex items-center gap-2 text-xs font-black uppercase ${s.lastData.plugins?.some((p) => p.needs_update) ? "bg-[#20d67b]/10 border-[#20d67b]/20 text-[#20d67b] hover:bg-[#20d67b]/20" : "bg-white/5 border-white/5 text-neutral-600 opacity-50"}`}>
-                      Plugins <span className="font-mono">{s.lastData.plugins?.filter((p) => p.needs_update).length ?? 0}</span>
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); if (s.lastData?.themes?.some((t) => t.needs_update)) setExpandedSite(`${s.id}-t`); }} className={`px-3 py-1.5 rounded-xl border transition-all flex items-center gap-2 text-xs font-black uppercase ${s.lastData.themes?.some((t) => t.needs_update) ? "bg-pink-500/10 border-pink-500/20 text-pink-500 hover:bg-pink-500/20" : "bg-white/5 border-white/5 text-neutral-600 opacity-50"}`}>
-                      Themes <span className="font-mono">{s.lastData.themes?.filter((t) => t.needs_update).length ?? 0}</span>
-                    </button>
-                    {/* offline_log/HTTP health hidden in simplified view */}
-                  </div>
-                  {(expandedSite === `${s.id}-p` || expandedSite === `${s.id}-t`) && (
-                    <StaticModal
-                      title={expandedSite.endsWith("-p") ? "Plugin Updates" : "Theme Updates"}
-                      items={(expandedSite.endsWith("-p") ? s.lastData.plugins : s.lastData.themes)?.filter((item) => item.needs_update) ?? []}
-                      onClose={() => setExpandedSite(null)}
-                    />
-                  )}
-                </div>
-              ) : (
-                <span title={offlineReason(s)}>
-                  <Badge color="red">{statusLabel(s)}</Badge>
-                </span>
-              )}
+              <span title={!isOnline(s) ? offlineReason(s) : undefined} className="mt-auto">
+                <Badge color={isOnline(s) ? "custom" : "red"}>{statusLabel(s)}</Badge>
+              </span>
             </div>
           ))}
         </div>
 
       ) : (
 
-        // ─── List / Table ───────────────────────────────────────────────────────
+        // â”€â”€â”€ List / Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         <PaginatedTable
           sites={processedSites}
           onDeleteConfirm={setDeleteConfirm}
-          expandedSite={expandedSite}
-          setExpandedSite={setExpandedSite}
         />
       )}
 
-      {/* ─── Alert Log (inklapbaar onder het dashboard) ──────────────────────── */}
+      {/* â”€â”€â”€ Alert Log (inklapbaar onder het dashboard) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {showLog && (
         <div className="mt-10">
           <AlertLogPanel
@@ -823,3 +637,4 @@ export default function SmartWpWidget() {
     </Card>
   );
 }
+

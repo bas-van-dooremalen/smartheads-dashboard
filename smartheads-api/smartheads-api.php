@@ -1,25 +1,24 @@
-<?php
+﻿<?php
 /*
 Plugin Name: Smartheads Dashboard Update API
-Description: Beveiligde API voor Smartheads Dashboard om Core, Plugin, Theme status, HTTP health, SSL en offline history uit te lezen.
-Version: 3.2
+Description: Beveiligde API voor Smartheads Dashboard om HTTP health en offline history uit te lezen.
+Version: 3.3
 Author: Bas / Smartheads
 */
 
 if (!defined('ABSPATH')) exit;
 
-// ─── Configuratie ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Configuratie â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 define('SH_DASHBOARD_API_KEY',   'f9e1c4b7a3d8f0c2e6b1a9d4f7c3e8a1b6d9f2c4e7a0b3d5f8c1e4a7b2d9f3c6e1a4b7d0f2c9e5a1d4b8f0c3e6a9d2f5b1c7e4a0f8d3');
 define('SH_MONITOR_POST_TYPES',  ['page', 'post']);
 define('SH_OFFLINE_LOG_MAX',     50);
-define('SH_SSL_CRITICAL_DAYS',   14);
 define('SH_HTTP_MAX_URLS',       50);
 define('SH_HTTP_TIMEOUT',        8);
 define('SH_CRON_HOOK',           'sh_run_http_health_check');
 define('SH_CRON_INTERVAL',       'sh_every_30_minutes');
 
-// ─── Activatie / Deactivatie ──────────────────────────────────────────────────
+// â”€â”€â”€ Activatie / Deactivatie â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 register_activation_hook(__FILE__, 'sh_plugin_activate');
 register_deactivation_hook(__FILE__, 'sh_plugin_deactivate');
@@ -36,7 +35,7 @@ function sh_plugin_deactivate(): void {
     }
 }
 
-// ─── Custom cron interval ─────────────────────────────────────────────────────
+// â”€â”€â”€ Custom cron interval â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 add_filter('cron_schedules', function(array $schedules): array {
     $schedules[SH_CRON_INTERVAL] = [
@@ -46,7 +45,7 @@ add_filter('cron_schedules', function(array $schedules): array {
     return $schedules;
 });
 
-// ─── Cron planning ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Cron planning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function sh_schedule_cron(): void {
     if (!wp_next_scheduled(SH_CRON_HOOK)) {
@@ -56,7 +55,7 @@ function sh_schedule_cron(): void {
 add_action('init', 'sh_schedule_cron');
 add_action(SH_CRON_HOOK, 'sh_run_and_cache_http_health');
 
-// ─── REST route ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ REST route â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 add_action('rest_api_init', function(): void {
     register_rest_route('dashboard/v1', '/updates', [
@@ -66,7 +65,7 @@ add_action('rest_api_init', function(): void {
     ]);
 });
 
-// ─── CORS headers ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ CORS headers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 add_action('rest_api_init', function(): void {
     remove_filter('rest_pre_serve_request', 'rest_send_cors_headers');
@@ -78,7 +77,7 @@ add_action('rest_api_init', function(): void {
     });
 }, 15);
 
-// ─── Helper: Offline log ──────────────────────────────────────────────────────
+// â”€â”€â”€ Helper: Offline log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function sh_get_offline_log(): array {
     return get_option('sh_offline_log', []);
@@ -100,174 +99,14 @@ function sh_append_offline_log(string $url, int $status_code, string $reason): v
     update_option('sh_offline_log', $log, false);
 }
 
-// ─── Helper: SSL check ────────────────────────────────────────────────────────
-
-function sh_check_ssl(string $domain): array {
-    $host = parse_url('https://' . $domain, PHP_URL_HOST) ?: $domain;
-
-    if (!function_exists('stream_socket_client')) {
-        return [
-            'valid'          => false,
-            'days_remaining' => null,
-            'expiry_date'    => null,
-            'status'         => 'error',
-            'message'        => 'stream_socket_client niet beschikbaar op deze server.',
-        ];
-    }
-
-    // 1) TLS-validatie (chain + hostname). Dit is de check die Node.js fetch ook doet.
-    $tls_ok     = null;
-    $tls_error  = null;
-    $tls_method = null;
-
-    if (function_exists('curl_init')) {
-        $tls_method = 'curl';
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => "https://{$host}/",
-            CURLOPT_NOBODY         => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HEADER         => false,
-            CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_TIMEOUT        => 10,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_USERAGENT      => 'Smartheads-Dashboard-Monitor/3.2',
-        ]);
-        $res = curl_exec($ch);
-        if ($res === false) {
-            $tls_ok    = false;
-            $errno     = (int) curl_errno($ch);
-            $tls_error = trim((string) curl_error($ch));
-            if ($tls_error === '') $tls_error = "cURL TLS error ({$errno})";
-        } else {
-            $tls_ok = true;
-        }
-        curl_close($ch);
-    } else {
-        $tls_method = 'stream';
-
-        $ca_file = ini_get('openssl.cafile') ?: ini_get('curl.cainfo') ?: null;
-        $ssl_ctx = [
-            'capture_peer_cert' => true,
-            'verify_peer'       => true,
-            'verify_peer_name'  => true,
-            'allow_self_signed' => false,
-            'SNI_enabled'       => true,
-            'peer_name'         => $host,
-        ];
-        if (is_string($ca_file) && $ca_file !== '') {
-            $ssl_ctx['cafile'] = $ca_file;
-        }
-
-        $context_verify = stream_context_create(['ssl' => $ssl_ctx]);
-        $errno  = 0;
-        $errstr = '';
-        $socket_verify = @stream_socket_client(
-            "ssl://{$host}:443",
-            $errno,
-            $errstr,
-            10,
-            STREAM_CLIENT_CONNECT,
-            $context_verify
-        );
-
-        if ($socket_verify) {
-            $tls_ok = true;
-            fclose($socket_verify);
-        } else {
-            $tls_ok    = false;
-            $tls_error = $errstr ?: "TLS validatie fout ({$errno})";
-        }
-    }
-
-    // 2) Certificaat uitlezen (altijd, ook als TLS-validatie faalt)
-    $context = stream_context_create([
-        'ssl' => [
-            'capture_peer_cert' => true,
-            'verify_peer'       => false,
-            'verify_peer_name'  => false,
-            'SNI_enabled'       => true,
-            'peer_name'         => $host,
-        ]
-    ]);
-
-    $errno  = 0;
-    $errstr = '';
-    $socket = @stream_socket_client(
-        "ssl://{$host}:443",
-        $errno,
-        $errstr,
-        10,
-        STREAM_CLIENT_CONNECT,
-        $context
-    );
-
-    if (!$socket) {
-        return [
-            'valid'          => false,
-            'days_remaining' => null,
-            'expiry_date'    => null,
-            'status'         => 'error',
-            'message'        => "Kon geen SSL verbinding maken: {$errstr}",
-            'tls_ok'         => $tls_ok,
-            'tls_error'      => $tls_error,
-            'tls_method'     => $tls_method,
-        ];
-    }
-
-    $params = stream_context_get_params($socket);
-    fclose($socket);
-
-    $cert      = $params['options']['ssl']['peer_certificate'] ?? null;
-    $cert_info = $cert ? openssl_x509_parse($cert) : null;
-    $valid_to  = $cert_info['validTo_time_t'] ?? null;
-
-    if (!$valid_to) {
-        return [
-            'valid'          => false,
-            'days_remaining' => null,
-            'expiry_date'    => null,
-            'status'         => 'error',
-            'message'        => 'Kon vervaldatum niet uitlezen uit certificaat.',
-            'tls_ok'         => $tls_ok,
-            'tls_error'      => $tls_error,
-            'tls_method'     => $tls_method,
-        ];
-    }
-
-    $days_remaining = (int) floor(($valid_to - time()) / 86400);
-    $expiry_date    = date('Y-m-d', $valid_to);
-    $expired        = $days_remaining < 0;
-
-    if ($expired) {
-        $status  = 'critical';
-        $message = "Certificaat is verlopen op {$expiry_date}.";
-    } elseif ($tls_ok === false) {
-        $status  = 'error';
-        $message = "TLS-validatie mislukt ({$tls_method}): {$tls_error}";
-    } elseif ($days_remaining <= SH_SSL_CRITICAL_DAYS) {
-        $status  = 'critical';
-        $message = "Certificaat verloopt over {$days_remaining} dagen ({$expiry_date}) — actie vereist!";
-    } else {
-        $status  = 'ok';
-        $message = "Certificaat geldig tot {$expiry_date} ({$days_remaining} dagen).";
-    }
-
-    return [
-        'valid'          => ($tls_ok !== false) && !$expired,
-        'days_remaining' => $days_remaining,
-        'expiry_date'    => $expiry_date,
-        'status'         => $status,
-        'message'        => $message,
-        'tls_ok'         => $tls_ok,
-        'tls_error'      => $tls_error,
-        'tls_method'     => $tls_method,
-    ];
+function sh_is_ssl_error_message(string $message): bool {
+    $m = strtolower($message);
+    return strpos($m, 'ssl certificate problem') !== false
+        || strpos($m, 'unable to get local issuer certificate') !== false
+        || strpos($m, 'unable to verify the first certificate') !== false;
 }
 
-// ─── Async HTTP health check (via WP Cron) ────────────────────────────────────
+// â”€â”€â”€ Async HTTP health check (via WP Cron) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function sh_run_and_cache_http_health(): void {
     @set_time_limit(300);
@@ -299,7 +138,7 @@ function sh_run_and_cache_http_health(): void {
 
         $response = wp_remote_get($url, [
             'timeout'     => SH_HTTP_TIMEOUT,
-            'redirection' => 5,        // Volg redirects — 301/302 zijn geen fouten
+            'redirection' => 5,        // Volg redirects â€” 301/302 zijn geen fouten
             'sslverify'   => false,    // Blokkeer niet op SSL-waarschuwingen bij de check zelf
             'user-agent'  => 'Smartheads-Dashboard-Monitor/3.1',
             'headers'     => [
@@ -313,18 +152,21 @@ function sh_run_and_cache_http_health(): void {
         if (is_wp_error($response)) {
             $status      = 0;
             $status_text = $response->get_error_message();
-            $is_error    = true;
+
+            // SSL-chain errors tell us the server is probably up, but the local CA store is incomplete.
+            // For a simple online/offline view we don't want to mark this as "offline".
+            $is_error = !sh_is_ssl_error_message($status_text);
         } else {
             $status      = (int) wp_remote_retrieve_response_code($response);
             $status_text = wp_remote_retrieve_response_message($response);
 
-            // ── Wat telt als echte fout ──────────────────────────────────────
-            // 5xx = serverfout          → altijd een echte fout
-            // 404 = pagina niet gevonden → echte fout (inhoud verdwenen)
-            // 403 = toegang geweigerd   → echte fout
-            // 0   = geen verbinding     → echte fout
-            // 301/302 → worden gevolgd (redirection: 5), tellen NIET als fout
-            // 200-299 → alles in orde
+            // â”€â”€ Wat telt als echte fout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // 5xx = serverfout          â†’ altijd een echte fout
+            // 404 = pagina niet gevonden â†’ echte fout (inhoud verdwenen)
+            // 403 = toegang geweigerd   â†’ echte fout
+            // 0   = geen verbinding     â†’ echte fout
+            // 301/302 â†’ worden gevolgd (redirection: 5), tellen NIET als fout
+            // 200-299 â†’ alles in orde
             $is_error = ($status === 0)
                      || ($status >= 500)
                      || ($status === 404)
@@ -369,7 +211,7 @@ function sh_run_and_cache_http_health(): void {
     update_option('sh_cached_http_health', $result, false);
 }
 
-// ─── API Callback ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ API Callback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Response {
 
@@ -377,60 +219,10 @@ function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Res
         return new WP_REST_Response(['error' => 'Unauthorized', 'message' => 'Ongeldige API Key.'], 401);
     }
 
-    require_once ABSPATH . 'wp-admin/includes/update.php';
-    require_once ABSPATH . 'wp-admin/includes/plugin.php';
-    require_once ABSPATH . 'wp-admin/includes/theme.php';
-
     try {
-
         $force_check = $request->get_param('force') === '1';
-        $last_check  = get_transient('sh_last_update_check');
-
-        if ($force_check || false === $last_check) {
-            wp_update_plugins();
-            wp_update_themes();
-            wp_version_check();
-            set_transient('sh_last_update_check', time(), 12 * HOUR_IN_SECONDS);
-            $last_check = time();
-        }
-
-        $core_updates   = get_site_transient('update_core');
-        $plugin_updates = get_site_transient('update_plugins');
-        $theme_updates  = get_site_transient('update_themes');
-
-        /* ---------- CORE ---------- */
-        $core_current      = get_bloginfo('version');
-        $core_latest       = $core_current;
-        $core_needs_update = false;
-
-        if (isset($core_updates->updates[0])) {
-            $core_latest       = $core_updates->updates[0]->current;
-            $core_needs_update = version_compare($core_current, $core_latest, '<');
-        }
-
-        /* ---------- PLUGINS ---------- */
-        $plugin_list = [];
-        foreach (get_plugins() as $path => $data) {
-            $needs_update  = isset($plugin_updates->response[$path]);
-            $plugin_list[] = [
-                'name'         => $data['Name'],
-                'current'      => $data['Version'],
-                'latest'       => $needs_update ? $plugin_updates->response[$path]->new_version : $data['Version'],
-                'needs_update' => $needs_update,
-                'active'       => is_plugin_active($path),
-            ];
-        }
-
-        /* ---------- THEMES ---------- */
-        $theme_list = [];
-        foreach (wp_get_themes() as $slug => $theme) {
-            $needs_update = isset($theme_updates->response[$slug]);
-            $theme_list[] = [
-                'name'         => $theme->get('Name'),
-                'current'      => $theme->get('Version'),
-                'latest'       => $needs_update ? $theme_updates->response[$slug]['new_version'] : $theme->get('Version'),
-                'needs_update' => $needs_update,
-            ];
+        if ($force_check) {
+            sh_run_and_cache_http_health();
         }
 
         /* ---------- HTTP HEALTH (uit cache) ---------- */
@@ -455,28 +247,15 @@ function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Res
             return $entry;
         }, array_reverse($raw_log));
 
-        /* ---------- SSL CHECK ---------- */
-        $site_domain = parse_url(home_url(), PHP_URL_HOST);
-        $ssl         = sh_check_ssl($site_domain);
-
         /* ---------- Response ---------- */
         return new WP_REST_Response([
             'site'    => get_bloginfo('name'),
-            'php'     => phpversion(),
-            'core'    => [
-                'current'      => $core_current,
-                'latest'       => $core_latest,
-                'needs_update' => $core_needs_update,
-            ],
-            'plugins'     => $plugin_list,
-            'themes'      => $theme_list,
             'http_health' => $cached_http_health,
             'offline_log' => [
                 'total_events' => count($raw_log),
                 'events'       => $offline_log,
             ],
-            'ssl'                  => $ssl,
-            'last_check_timestamp' => $last_check,
+            'last_check_timestamp' => time(),
         ], 200);
 
     } catch (Exception $e) {
