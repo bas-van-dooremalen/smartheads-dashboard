@@ -22,11 +22,6 @@ export default function CustomCursor() {
   return (
     <>
       <div
-        ref={cursorRef}
-        className="fixed top-0 left-0 w-3 h-3 rounded-full bg-[#20d67b] pointer-events-none z-[100000] mix-blend-difference shadow-[0_0_10px_#20d67b]"
-        style={{ left: '-6px', top: '-10px' }}
-      />
-      <div
         ref={followerRef}
         className="fixed top-0 left-0 w-10 h-10 bg-[#20d67b]/10 rounded-full blur-xl pointer-events-none z-[99999]"
         style={{ left: '-20px', top: '-20px' }}
