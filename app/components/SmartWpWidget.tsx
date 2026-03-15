@@ -8,7 +8,6 @@ import {
 import { collection, onSnapshot } from "firebase/firestore";
 import Card from "./Card";
 import Badge from "./Badge";
-import { useAlertLog, AlertLogPanel, syncAlertsToLog } from "./AlertLog";
 
 // â”€â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -17,39 +16,28 @@ const SLIDE_INTERVAL_MS   = 8_500;
 
 // â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-interface HttpCheck {
-  url: string;
-  post_id: number | null;
-  status_code: number;
-  status_text: string;
-  response_time_ms: number;
-  ok: boolean;
-  is_redirect: boolean;
-  is_error: boolean;
-}
-
-interface HttpHealth {
-  has_errors: boolean;
-  error_count: number;
-  total_checked: number;
-  checks: HttpCheck[];
-}
-
-interface OfflineEvent {
-  url: string;
-  timestamp: number;
-  date: string;
-  status_code: number;
-  reason: string;
-}
-
-interface OfflineLog {
-  total_events: number;
-  events: OfflineEvent[];
-}
-
 interface WpSiteData {
   site?: string;
+  php?: string;
+  core?: {
+    current?: string;
+    needs_update?: boolean;
+    [k: string]: unknown;
+  };
+  themes?: Array<{
+    name: string;
+    version?: string;
+    needs_update?: boolean;
+    active?: boolean;
+    [k: string]: unknown;
+  }>;
+  plugins?: Array<{
+    name: string;
+    version?: string;
+    needs_update?: boolean;
+    active?: boolean;
+    [k: string]: unknown;
+  }>;
 }
 
 interface WpSite {
@@ -72,15 +60,6 @@ interface WpSite {
 }
 
 type LayoutType = "grid" | "list";
-
-interface CriticalAlert {
-  siteId: string;
-  siteName: string;
-  domain: string;
-  type: "offline";
-  label: string;
-  detail: string;
-}
 
 // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -133,36 +112,6 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function buildCriticalAlerts(sites: WpSite[]): CriticalAlert[] {
-  const alerts: CriticalAlert[] = [];
-
-  for (const site of sites) {
-    const name   = getSiteName(site);
-    const domain = site.domain;
-
-    if (!isOnline(site)) {
-      const detail = offlineReason(site);
-      alerts.push({
-        siteId: site.id,
-        siteName: name,
-        domain,
-        type: "offline",
-        label: "Offline",
-        detail,
-      });
-    }
-  }
-
-  return alerts;
-}
-
-// â”€â”€â”€ Badge class helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-const badgeBase    = "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-black uppercase tracking-wider";
-const badgeNeutral = `${badgeBase} bg-white/5 border-white/10 text-neutral-300`;
-const badgeRed     = `${badgeBase} bg-red-500/10 border-red-500/20 text-red-400`;
-const badgeOrange  = `${badgeBase} bg-orange-500/10 border-orange-500/20 text-orange-400`;
-
 // (Alert type config/sidebar removed for a simpler table view)
 
 // â”€â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -172,17 +121,6 @@ const badgeOrange  = `${badgeBase} bg-orange-500/10 border-orange-500/20 text-or
 // (HTTP health badges removed for a simpler table view)
 
 // (HTTP/Offline modals removed for a simpler table view)
-
-function EmptyState({ label }: { label: string }) {
-  return (
-    <div className="py-12 flex flex-col items-center justify-center">
-      <div className="w-10 h-10 rounded-full bg-[#20d67b]/10 flex items-center justify-center mb-3">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#20d67b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      </div>
-      <p className="text-neutral-500 text-xs font-black uppercase tracking-widest">{label}</p>
-    </div>
-  );
-}
 
 // â”€â”€â”€ Critical Alerts Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -251,9 +189,13 @@ function PaginatedTable({
         <table className="min-w-full divide-y divide-white/10">
           <thead>
             <tr className="bg-neutral-900">
-              {["Site", "Status", ""].map((h) => (
-                <th key={h} className={`px-4 py-4 text-xs font-black uppercase tracking-wider text-neutral-400 ${h === "Site" ? "text-left px-6" : ""}`}>{h}</th>
-              ))}
+              <th className="px-6 py-4 text-left text-xs font-black uppercase tracking-wider text-neutral-400">Site</th>
+              <th className="px-4 py-4 text-center text-xs font-black uppercase tracking-wider text-neutral-400">Status</th>
+              <th className="px-4 py-4 text-center text-xs font-black uppercase tracking-wider text-neutral-400">PHP</th>
+              <th className="px-4 py-4 text-center text-xs font-black uppercase tracking-wider text-neutral-400">Core</th>
+              <th className="px-4 py-4 text-center text-xs font-black uppercase tracking-wider text-neutral-400">Theme</th>
+              <th className="px-4 py-4 text-center text-xs font-black uppercase tracking-wider text-neutral-400">Plugins</th>
+              <th className="px-4 py-4 text-center text-xs font-black uppercase tracking-wider text-neutral-400"></th>
             </tr>
           </thead>
           <tbody className="bg-neutral-950 divide-y divide-white/10">
@@ -270,6 +212,44 @@ function PaginatedTable({
                 <td className="px-4 py-5 text-center">
                   <span title={!isOnline(s) ? offlineReason(s) : undefined}>
                     <Badge color={isOnline(s) ? "custom" : "red"}>{statusLabel(s)}</Badge>
+                  </span>
+                </td>
+
+                {/* PHP */}
+                <td className="px-4 py-5 text-center">
+                  <span className="text-xs font-mono text-neutral-300">
+                    {s.lastData?.php ?? "—"}
+                  </span>
+                </td>
+
+                {/* Core */}
+                <td className="px-4 py-5 text-center">
+                  <span className="text-xs font-mono text-neutral-300">
+                    {s.lastData?.core?.current ?? "—"}
+                  </span>
+                </td>
+
+                {/* Theme */}
+                <td className="px-4 py-5 text-center">
+                  <span className="text-xs font-mono text-neutral-300">
+                    {(() => {
+                      const themes = s.lastData?.themes ?? [];
+                      const active = themes.find((t) => t.active) ?? themes[0];
+                      return active?.version ?? "—";
+                    })()}
+                  </span>
+                </td>
+
+                {/* Plugins */}
+                <td className="px-4 py-5 text-center">
+                  <span className="text-xs font-mono text-neutral-300">
+                    {(() => {
+                      const plugins = s.lastData?.plugins ?? [];
+                      const total = plugins.length;
+                      if (!total) return "—";
+                      const updates = plugins.filter((p) => p.needs_update).length;
+                      return `${updates}/${total}`;
+                    })()}
                   </span>
                 </td>
 
@@ -351,13 +331,9 @@ export default function SmartWpWidget() {
   const [layout, setLayout]             = useState<LayoutType>("list");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [lastSync, setLastSync]         = useState<Date | null>(null);
-  const [showLog, setShowLog]           = useState(false);
   const [adminKey, setAdminKey]         = useState<string | null>(null);
   const [showAdminKeyModal, setShowAdminKeyModal] = useState(false);
   const pendingRefreshRef = useRef<null | { kind: "all" } | { kind: "domain"; domain: string }>(null);
-
-  // â”€â”€â”€ Alert Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const { log, addEntry, resolveEntry, clearLog } = useAlertLog();
 
   // â”€â”€â”€ Keyboard shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
@@ -441,17 +417,6 @@ export default function SmartWpWidget() {
   const processedSites = useMemo(() => {
     return [...sites].sort((a, b) => getSiteName(a).localeCompare(getSiteName(b)));
   }, [sites]);
-
-  const criticalAlerts = useMemo(() => buildCriticalAlerts(sites), [sites]);
-
-  // â”€â”€â”€ Sync alerts â†’ log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  useEffect(() => {
-    syncAlertsToLog(criticalAlerts, log, addEntry);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [criticalAlerts]);
-
-  // Aantal onopgeloste log-entries voor de badge op de knop
-  const unresolvedLogCount = useMemo(() => log.filter((e) => !e.resolvedAt).length, [log]);
 
   return (
     <Card className="col-span-full border-white/5 bg-neutral-900/20">
@@ -540,26 +505,6 @@ export default function SmartWpWidget() {
           <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto">
             {lastSync && <span className="text-xs text-neutral-500 ml-2">Last sync: {lastSync.toLocaleTimeString()}</span>}
 
-            {/* Alert Log toggle button */}
-            <button
-              onClick={() => setShowLog((v) => !v)}
-              className={`relative flex items-center gap-2 px-4 py-2 rounded-2xl border text-xs font-black uppercase tracking-wider transition-all ${
-                showLog
-                  ? "bg-[#20d67b]/10 border-[#20d67b]/30 text-[#20d67b]"
-                  : "bg-white/5 border-white/5 text-neutral-400 hover:border-white/20 hover:text-white"
-              }`}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-              </svg>
-              Alert Log
-              {unresolvedLogCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center">
-                  {unresolvedLogCount > 9 ? "9+" : unresolvedLogCount}
-                </span>
-              )}
-            </button>
-
             <button onClick={refreshAllSites} disabled={loading} className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/5 text-neutral-400 text-xs font-black uppercase tracking-wider hover:border-white/20 hover:text-white transition-all disabled:opacity-40">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={loading ? "animate-spin" : ""}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               {loading ? "Syncing..." : "Refresh"}
@@ -621,17 +566,6 @@ export default function SmartWpWidget() {
           sites={processedSites}
           onDeleteConfirm={setDeleteConfirm}
         />
-      )}
-
-      {/* â”€â”€â”€ Alert Log (inklapbaar onder het dashboard) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-      {showLog && (
-        <div className="mt-10">
-          <AlertLogPanel
-            log={log}
-            onResolve={resolveEntry}
-            onClear={clearLog}
-          />
-        </div>
       )}
 
     </Card>

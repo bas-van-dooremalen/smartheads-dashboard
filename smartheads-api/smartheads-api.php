@@ -243,6 +243,37 @@ function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Res
             sh_run_and_cache_http_health();
         }
 
+        /* ---------- Versions (simple) ---------- */
+        $php_version  = defined('PHP_VERSION') ? PHP_VERSION : phpversion();
+        $core_version = get_bloginfo('version');
+
+        $active_theme = wp_get_theme();
+        $themes = [];
+        if ($active_theme && $active_theme->exists()) {
+            $themes[] = [
+                'name'         => (string) $active_theme->get('Name'),
+                'version'      => (string) $active_theme->get('Version'),
+                'needs_update' => false,
+                'active'       => true,
+            ];
+        }
+
+        if (!function_exists('get_plugins')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+        $all_plugins    = function_exists('get_plugins') ? get_plugins() : [];
+        $active_plugins = (array) get_option('active_plugins', []);
+        $plugins = [];
+        foreach ($active_plugins as $plugin_file) {
+            $info = isset($all_plugins[$plugin_file]) ? $all_plugins[$plugin_file] : null;
+            $plugins[] = [
+                'name'         => $info ? (string) ($info['Name'] ?? $plugin_file) : (string) $plugin_file,
+                'version'      => $info ? (string) ($info['Version'] ?? '') : '',
+                'needs_update' => false,
+                'active'       => true,
+            ];
+        }
+
         /* ---------- HTTP HEALTH (uit cache) ---------- */
         $cached_http_health = get_option('sh_cached_http_health', null);
 
@@ -268,6 +299,13 @@ function sh_dashboard_update_api_callback(WP_REST_Request $request): WP_REST_Res
         /* ---------- Response ---------- */
         return new WP_REST_Response([
             'site'    => get_bloginfo('name'),
+            'php'     => $php_version,
+            'core'    => [
+                'current'      => (string) $core_version,
+                'needs_update' => false,
+            ],
+            'themes'  => $themes,
+            'plugins' => $plugins,
             'http_health' => $cached_http_health,
             'offline_log' => [
                 'total_events' => count($raw_log),
