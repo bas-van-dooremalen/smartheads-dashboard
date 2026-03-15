@@ -1,10 +1,16 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import net from "node:net";
+import { Agent } from "undici";
 import { adminDb } from "./firebaseAdmin";
 
 const FETCH_TIMEOUT_MS = 60_000;
 const REACHABILITY_TIMEOUT_MS = 20_000;
+
+const wpInsecureTls = process.env.WP_FETCH_INSECURE_TLS === "1";
+const wpFetchDispatcher = wpInsecureTls
+  ? new Agent({ connect: { rejectUnauthorized: false } })
+  : undefined;
 
 type Reachability = {
   ok: boolean;
@@ -278,7 +284,7 @@ export async function fetchWpSiteData(domain: string) {
     try {
       const res = await fetch(
         `https://${host}/wp-json/dashboard/v1/updates?key=${encodeURIComponent(apiKey)}&_=${Date.now()}`,
-        { cache: "no-store", signal: controller.signal }
+        ({ cache: "no-store", signal: controller.signal, dispatcher: wpFetchDispatcher } as unknown as RequestInit)
       );
       const responseTimeMs = Date.now() - start;
       if (!res.ok) {
