@@ -729,7 +729,7 @@ export default function SmartWpWidget() {
                   >
                     {/* Site naam + status */}
                     <div className="pr-4">
-                      <p className="text-sm font-black text-white italic tracking-tight uppercase leading-tight truncate group-hover:text-[#20d67b] transition-colors">
+                      <p className="text-sm font-black text-white italic tracking-tight uppercase leading-tight truncate">
                         {getSiteName(s)}
                       </p>
                       <p className="text-[10px] font-mono text-neutral-600 mt-0.5 truncate">{s.domain}</p>
