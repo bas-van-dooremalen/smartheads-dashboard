@@ -45,7 +45,7 @@ add_action( 'rest_api_init', function (): void {
 } );
 
 // =============================================================================
-// CORS: sta verzoeken toe vanuit het Smartheads Dashboard
+// CORS
 // =============================================================================
 
 add_action( 'rest_api_init', function (): void {
@@ -60,14 +60,9 @@ add_action( 'rest_api_init', function (): void {
 
 // =============================================================================
 // Hulpfunctie: zorg dat WordPress update-data beschikbaar is
-//
-// WordPress laadt update-informatie lazy; door de juiste includes en een
-// geforceerde check te doen, zorgen we dat `get_site_transient('update_*')`
-// actuele data bevat.
 // =============================================================================
 
 function sh_ensure_update_data(): void {
-    // Laad benodigde bestanden als ze nog niet geladen zijn
     if ( ! function_exists( 'get_plugins' ) ) {
         require_once ABSPATH . 'wp-admin/includes/plugin.php';
     }
@@ -75,7 +70,6 @@ function sh_ensure_update_data(): void {
         require_once ABSPATH . 'wp-includes/update.php';
     }
 
-    // Forceer een update-check als er nog geen recente data is
     if ( ! get_site_transient( 'update_core' ) )    { wp_version_check(); }
     if ( ! get_site_transient( 'update_themes' ) )  { wp_update_themes(); }
     if ( ! get_site_transient( 'update_plugins' ) ) { wp_update_plugins(); }
@@ -87,7 +81,6 @@ function sh_ensure_update_data(): void {
 
 function sh_dashboard_update_api_callback( WP_REST_Request $request ): WP_REST_Response {
 
-    // ── Authenticatie ──────────────────────────────────────────────────────
     if ( $request->get_param( 'key' ) !== SH_DASHBOARD_API_KEY ) {
         return new WP_REST_Response(
             [ 'error' => 'Unauthorized', 'message' => 'Ongeldige API Key.' ],
@@ -105,15 +98,13 @@ function sh_dashboard_update_api_callback( WP_REST_Request $request ): WP_REST_R
 
         // ── WordPress Core ──────────────────────────────────────────────────
         global $wp_version;
-        $core_current = $wp_version;
-
-        $update_core      = get_site_transient( 'update_core' );
-        $core_new_version = null;
+        $core_current      = $wp_version;
+        $update_core       = get_site_transient( 'update_core' );
+        $core_new_version  = null;
         $core_needs_update = false;
 
         if ( ! empty( $update_core->updates ) ) {
             foreach ( $update_core->updates as $update ) {
-                // Alleen 'upgrade' (= nieuwere versie), geen 'latest' of 'development'
                 if ( isset( $update->response ) && $update->response === 'upgrade' ) {
                     $core_new_version  = $update->version ?? null;
                     $core_needs_update = true;
@@ -128,18 +119,18 @@ function sh_dashboard_update_api_callback( WP_REST_Request $request ): WP_REST_R
         $themes        = [];
 
         if ( $active_theme && $active_theme->exists() ) {
-            $theme_slug        = $active_theme->get_stylesheet();
+            $theme_slug         = $active_theme->get_stylesheet();
             $theme_needs_update = isset( $update_themes->response[ $theme_slug ] );
             $theme_new_version  = $theme_needs_update
                 ? ( $update_themes->response[ $theme_slug ]['new_version'] ?? null )
                 : null;
 
             $themes[] = [
-                'name'        => (string) $active_theme->get( 'Name' ),
-                'version'     => (string) $active_theme->get( 'Version' ),
+                'name'         => (string) $active_theme->get( 'Name' ),
+                'version'      => (string) $active_theme->get( 'Version' ),
                 'needs_update' => $theme_needs_update,
-                'new_version' => $theme_new_version,
-                'active'      => true,
+                'new_version'  => $theme_new_version,
+                'active'       => true,
             ];
         }
 
@@ -150,57 +141,44 @@ function sh_dashboard_update_api_callback( WP_REST_Request $request ): WP_REST_R
         $plugins        = [];
 
         foreach ( $active_plugins as $plugin_file ) {
-            $info = $all_plugins[ $plugin_file ] ?? null;
-
+            $info                = $all_plugins[ $plugin_file ] ?? null;
             $plugin_needs_update = isset( $update_plugins->response[ $plugin_file ] );
             $plugin_new_version  = $plugin_needs_update
                 ? ( $update_plugins->response[ $plugin_file ]->new_version ?? null )
                 : null;
 
             $plugins[] = [
-                'name'        => $info ? (string) ( $info['Name']    ?? $plugin_file ) : (string) $plugin_file,
-                'version'     => $info ? (string) ( $info['Version'] ?? '' )          : '',
+                'name'         => $info ? (string) ( $info['Name']    ?? $plugin_file ) : (string) $plugin_file,
+                'version'      => $info ? (string) ( $info['Version'] ?? '' )           : '',
                 'needs_update' => $plugin_needs_update,
-                'new_version' => $plugin_new_version,
-                'active'      => true,
+                'new_version'  => $plugin_new_version,
+                'active'       => true,
             ];
         }
 
-        // ── Samenvatting: aantal updates per categorie ───────────────────────
+        // ── Samenvatting ────────────────────────────────────────────────────
         $summary = [
-            'core_updates'   => $core_needs_update  ? 1 : 0,
+            'core_updates'   => $core_needs_update ? 1 : 0,
             'theme_updates'  => count( array_filter( $themes,  fn( $t ) => $t['needs_update'] ) ),
             'plugin_updates' => count( array_filter( $plugins, fn( $p ) => $p['needs_update'] ) ),
         ];
         $summary['total_updates'] = array_sum( $summary );
 
-        // ── Response ────────────────────────────────────────────────────────
         return new WP_REST_Response( [
             'site'    => get_bloginfo( 'name' ),
-
-            // PHP
-            'php' => [
-                'version'     => $php_version,
+            'php'     => [
+                'version'      => $php_version,
                 'needs_update' => $php_needs_update,
-                'recommended' => $php_min_recommended,
+                'recommended'  => $php_min_recommended,
             ],
-
-            // WordPress Core
-            'core' => [
-                'current'     => $core_current,
+            'core'    => [
+                'current'      => $core_current,
                 'needs_update' => $core_needs_update,
-                'new_version' => $core_new_version,
+                'new_version'  => $core_new_version,
             ],
-
-            // Thema's (alleen actief thema)
             'themes'  => $themes,
-
-            // Plugins (alleen actieve plugins)
             'plugins' => $plugins,
-
-            // Samenvatting voor snelle badge-weergave in het dashboard
             'summary' => $summary,
-
             'last_check_timestamp' => time(),
         ], 200 );
 

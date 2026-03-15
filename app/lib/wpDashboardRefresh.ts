@@ -1,16 +1,22 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import net from "node:net";
+import tls from "node:tls";
 import { Agent } from "undici";
 import { adminDb } from "./firebaseAdmin";
 
 const FETCH_TIMEOUT_MS = 60_000;
 const REACHABILITY_TIMEOUT_MS = 20_000;
+const SSL_TIMEOUT_MS = 10_000;
 
 const wpInsecureTls = process.env.WP_FETCH_INSECURE_TLS === "1";
 const wpFetchDispatcher = wpInsecureTls
   ? new Agent({ connect: { rejectUnauthorized: false } })
   : undefined;
+
+// =============================================================================
+// Types
+// =============================================================================
 
 type Reachability = {
   ok: boolean;
@@ -22,6 +28,14 @@ type Reachability = {
   error: string | null;
 };
 
+type SslResult = {
+  valid: boolean;
+  days_remaining: number | null;
+  expiry_date: string | null;
+  status: "ok" | "warning" | "critical" | "error";
+  message: string;
+};
+
 type WpFetchResult = {
   data: unknown | null;
   ok: boolean;
@@ -31,25 +45,134 @@ type WpFetchResult = {
   host: string;
 };
 
+// =============================================================================
+// Helpers
+// =============================================================================
+
 function checkTcpConnect(host: string, port: number, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.connect({ host, port });
     const done = (ok: boolean) => {
-      try {
-        socket.removeAllListeners();
-        socket.destroy();
-      } catch {
-        // Ignore.
-      }
+      try { socket.removeAllListeners(); socket.destroy(); } catch { /* ignore */ }
       resolve(ok);
     };
-
     socket.setTimeout(timeoutMs);
     socket.once("connect", () => done(true));
     socket.once("timeout", () => done(false));
     socket.once("error", () => done(false));
   });
 }
+
+function normalizeErrorMessage(e: unknown): string {
+  if (e instanceof Error) {
+    const base = (e.message || e.name || "error").trim();
+    const cause = (e as Error & { cause?: unknown }).cause;
+    const causeParts: string[] = [];
+    if (cause && typeof cause === "object") {
+      const causeObj = cause as { code?: unknown; message?: unknown };
+      const causeCode = typeof causeObj.code === "string" ? causeObj.code : null;
+      const causeMessage = typeof causeObj.message === "string" ? causeObj.message : null;
+      if (causeCode) causeParts.push(causeCode);
+      if (causeMessage && causeMessage !== base) causeParts.push(causeMessage);
+    } else if (typeof cause === "string" && cause !== base) {
+      causeParts.push(cause);
+    }
+    const msg = causeParts.length ? `${base} (${causeParts.join(": ")})` : base;
+    return msg.length > 250 ? msg.slice(0, 250) : msg;
+  }
+  const msg = String(e ?? "error").trim();
+  return msg.length > 250 ? msg.slice(0, 250) : msg;
+}
+
+// =============================================================================
+// SSL check — uitgevoerd vanuit Next.js, niet vanuit WordPress
+// =============================================================================
+
+async function checkSsl(domain: string): Promise<SslResult> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      resolve({
+        valid: false,
+        days_remaining: null,
+        expiry_date: null,
+        status: "error",
+        message: "SSL-check timeout.",
+      });
+    }, SSL_TIMEOUT_MS);
+
+    const socket = tls.connect(
+      { host: domain, port: 443, servername: domain, rejectUnauthorized: false },
+      () => {
+        clearTimeout(timeout);
+        try {
+          const cert = socket.getPeerCertificate();
+          socket.destroy();
+
+          if (!cert || !cert.valid_to) {
+            return resolve({
+              valid: false,
+              days_remaining: null,
+              expiry_date: null,
+              status: "error",
+              message: "Certificaat kon niet worden uitgelezen.",
+            });
+          }
+
+          const expiryDate  = new Date(cert.valid_to);
+          const now         = new Date();
+          const msRemaining = expiryDate.getTime() - now.getTime();
+          const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
+          const expiryStr   = expiryDate.toISOString().split("T")[0]!;
+          const valid       = daysRemaining > 0;
+
+          let status: SslResult["status"];
+          let message: string;
+
+          if (!valid) {
+            status  = "critical";
+            message = `Certificaat is verlopen op ${expiryStr}.`;
+          } else if (daysRemaining <= 14) {
+            status  = "critical";
+            message = `Certificaat verloopt over ${daysRemaining} dagen (${expiryStr}) — vernieuwen!`;
+          } else if (daysRemaining <= 30) {
+            status  = "warning";
+            message = `Certificaat verloopt over ${daysRemaining} dagen (${expiryStr}).`;
+          } else {
+            status  = "ok";
+            message = `Certificaat geldig tot ${expiryStr} (${daysRemaining} dagen).`;
+          }
+
+          resolve({ valid, days_remaining: daysRemaining, expiry_date: expiryStr, status, message });
+        } catch (e) {
+          resolve({
+            valid: false,
+            days_remaining: null,
+            expiry_date: null,
+            status: "error",
+            message: normalizeErrorMessage(e),
+          });
+        }
+      }
+    );
+
+    socket.once("error", (e) => {
+      clearTimeout(timeout);
+      socket.destroy();
+      resolve({
+        valid: false,
+        days_remaining: null,
+        expiry_date: null,
+        status: "error",
+        message: normalizeErrorMessage(e),
+      });
+    });
+  });
+}
+
+// =============================================================================
+// Zod schemas
+// =============================================================================
 
 const HttpCheckSchema = z
   .object({
@@ -64,22 +187,59 @@ const HttpCheckSchema = z
   })
   .passthrough();
 
+const PhpSchema = z.union([
+  z.object({
+    version: z.string(),
+    needs_update: z.boolean(),
+    recommended: z.string(),
+  }).passthrough(),
+  z.string(),
+]);
+
 const WpSiteDataSchema = z
   .object({
     site: z.string().optional(),
-    php: z.string().optional(),
+    php: PhpSchema.optional(),
     core: z
-      .object({ current: z.string(), needs_update: z.boolean() })
+      .object({
+        current: z.string(),
+        needs_update: z.boolean(),
+        new_version: z.string().nullable().optional(),
+      })
       .passthrough()
       .optional(),
     plugins: z
-      .array(z.object({ name: z.string(), needs_update: z.boolean() }).passthrough())
+      .array(
+        z.object({
+          name: z.string(),
+          needs_update: z.boolean(),
+          version: z.string().optional(),
+          new_version: z.string().nullable().optional(),
+          active: z.boolean().optional(),
+        }).passthrough()
+      )
       .optional()
       .default([]),
     themes: z
-      .array(z.object({ name: z.string(), needs_update: z.boolean() }).passthrough())
+      .array(
+        z.object({
+          name: z.string(),
+          needs_update: z.boolean(),
+          version: z.string().optional(),
+          new_version: z.string().nullable().optional(),
+          active: z.boolean().optional(),
+        }).passthrough()
+      )
       .optional()
       .default([]),
+    summary: z
+      .object({
+        core_updates: z.number(),
+        theme_updates: z.number(),
+        plugin_updates: z.number(),
+        total_updates: z.number(),
+      })
+      .optional(),
     http_health: z
       .object({
         has_errors: z.boolean(),
@@ -94,25 +254,22 @@ const WpSiteDataSchema = z
         valid: z.boolean(),
         days_remaining: z.number().nullable(),
         expiry_date: z.string().nullable(),
-        status: z.enum(["ok", "critical", "error"]),
+        status: z.enum(["ok", "warning", "critical", "error"]),
         message: z.string(),
       })
-      .passthrough()
       .optional(),
     offline_log: z
       .object({
         total_events: z.number(),
         events: z
           .array(
-            z
-              .object({
-                url: z.string(),
-                timestamp: z.number(),
-                date: z.string(),
-                status_code: z.number(),
-                reason: z.string(),
-              })
-              .passthrough()
+            z.object({
+              url: z.string(),
+              timestamp: z.number(),
+              date: z.string(),
+              status_code: z.number(),
+              reason: z.string(),
+            }).passthrough()
           )
           .optional()
           .default([]),
@@ -122,6 +279,10 @@ const WpSiteDataSchema = z
   })
   .passthrough();
 
+// =============================================================================
+// normalizeDomain
+// =============================================================================
+
 export function normalizeDomain(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
@@ -129,11 +290,7 @@ export function normalizeDomain(raw: unknown): string | null {
 
   let hostname = trimmed;
   if (trimmed.includes("://")) {
-    try {
-      hostname = new URL(trimmed).hostname;
-    } catch {
-      return null;
-    }
+    try { hostname = new URL(trimmed).hostname; } catch { return null; }
   } else {
     hostname = trimmed.split("/")[0] ?? "";
   }
@@ -147,38 +304,15 @@ export function normalizeDomain(raw: unknown): string | null {
   if (ipv4.test(hostname)) return null;
   if (hostname.includes(":")) return null;
 
-  const fqdn =
-    /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/;
+  const fqdn = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/;
   if (!fqdn.test(hostname)) return null;
 
   return hostname;
 }
 
-function normalizeErrorMessage(e: unknown): string {
-  if (e instanceof Error) {
-    const base = (e.message || e.name || "error").trim();
-    const cause = (e as Error & { cause?: unknown }).cause;
-
-    // Node/undici often throws "TypeError: fetch failed" with a useful cause code.
-    const causeParts: string[] = [];
-    if (cause && typeof cause === "object") {
-      const causeObj = cause as { code?: unknown; message?: unknown };
-      const causeCode = typeof causeObj.code === "string" ? causeObj.code : null;
-      const causeMessage =
-        typeof causeObj.message === "string" ? causeObj.message : null;
-
-      if (causeCode) causeParts.push(causeCode);
-      if (causeMessage && causeMessage !== base) causeParts.push(causeMessage);
-    } else if (typeof cause === "string" && cause !== base) {
-      causeParts.push(cause);
-    }
-
-    const msg = causeParts.length ? `${base} (${causeParts.join(": ")})` : base;
-    return msg.length > 250 ? msg.slice(0, 250) : msg;
-  }
-  const msg = String(e ?? "error").trim();
-  return msg.length > 250 ? msg.slice(0, 250) : msg;
-}
+// =============================================================================
+// checkSiteReachability
+// =============================================================================
 
 async function checkSiteReachability(domain: string): Promise<Reachability> {
   const hosts = domain.startsWith("www.") ? [domain] : [domain, `www.${domain}`];
@@ -197,22 +331,14 @@ async function checkSiteReachability(domain: string): Promise<Reachability> {
         signal: controller.signal,
         headers: {
           "user-agent": "Smartheads-Dashboard-Monitor/3.0",
-          accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
       });
-
-      // We only care that the server responds; don't download the whole page.
-      try {
-        await res.body?.cancel();
-      } catch {
-        // Ignore.
-      }
-
+      try { await res.body?.cancel(); } catch { /* ignore */ }
       const responseTimeMs = Date.now() - start;
       const statusCode = typeof res.status === "number" ? res.status : null;
-      const result: Reachability = {
-        ok: statusCode !== null ? statusCode < 500 : false,
+      return {
+        ok: statusCode !== null ? statusCode < 400 : false,
         url,
         statusCode,
         statusText: res.statusText || null,
@@ -220,55 +346,34 @@ async function checkSiteReachability(domain: string): Promise<Reachability> {
         checkedAt: Date.now(),
         error: null,
       };
-
-      // If we got any response, accept it; a 4xx still proves reachability.
-      return result;
     } catch (e: unknown) {
       const responseTimeMs = Date.now() - start;
       const name = e instanceof Error ? e.name : "";
       const error = name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
-
-      // Fallback: if TLS validation fails (or any fetch error), but TCP:443 is reachable,
-      // treat the site as online for the simple online/offline status.
       const tcpOk = await checkTcpConnect(host, 443, 5_000);
       if (tcpOk) {
-        return {
-          ok: true,
-          url,
-          statusCode: null,
-          statusText: "tcp",
-          responseTimeMs,
-          checkedAt: Date.now(),
-          error: null,
-        };
+        return { ok: true, url, statusCode: null, statusText: "tcp", responseTimeMs, checkedAt: Date.now(), error: null };
       }
-
-      lastFailure = {
-        ok: false,
-        url,
-        statusCode: null,
-        statusText: null,
-        responseTimeMs,
-        checkedAt: Date.now(),
-        error,
-      };
+      lastFailure = { ok: false, url, statusCode: null, statusText: null, responseTimeMs, checkedAt: Date.now(), error };
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  return (
-    lastFailure ?? {
-      ok: false,
-      url: `https://${domain}/`,
-      statusCode: null,
-      statusText: null,
-      responseTimeMs: 0,
-      checkedAt: Date.now(),
-      error: "unknown",
-    }
-  );
+  return lastFailure ?? {
+    ok: false,
+    url: `https://${domain}/`,
+    statusCode: null,
+    statusText: null,
+    responseTimeMs: 0,
+    checkedAt: Date.now(),
+    error: "unknown",
+  };
 }
+
+// =============================================================================
+// fetchWpSiteData
+// =============================================================================
 
 export async function fetchWpSiteData(domain: string) {
   const apiKey = process.env.WP_DASHBOARD_API_KEY;
@@ -288,89 +393,51 @@ export async function fetchWpSiteData(domain: string) {
       );
       const responseTimeMs = Date.now() - start;
       if (!res.ok) {
-        last = {
-          data: null,
-          ok: false,
-          statusCode: res.status,
-          responseTimeMs,
-          error: `http_${res.status}`,
-          host,
-        };
+        last = { data: null, ok: false, statusCode: res.status, responseTimeMs, error: `http_${res.status}`, host };
         continue;
       }
 
       let json: unknown;
-      try {
-        json = await res.json();
-      } catch {
-        last = {
-          data: null,
-          ok: false,
-          statusCode: res.status,
-          responseTimeMs,
-          error: "invalid_json",
-          host,
-        };
+      try { json = await res.json(); } catch {
+        last = { data: null, ok: false, statusCode: res.status, responseTimeMs, error: "invalid_json", host };
         continue;
       }
 
       const parsed = WpSiteDataSchema.safeParse(json);
       if (!parsed.success) {
-        last = {
-          data: null,
-          ok: false,
-          statusCode: res.status,
-          responseTimeMs,
-          error: "schema_mismatch",
-          host,
-        };
+        console.error("[wpDashboardRefresh] schema_mismatch for", host, parsed.error.flatten());
+        last = { data: null, ok: false, statusCode: res.status, responseTimeMs, error: "schema_mismatch", host };
         continue;
       }
 
-      return {
-        data: parsed.data,
-        ok: true,
-        statusCode: res.status,
-        responseTimeMs,
-        error: null,
-        host,
-      };
+      return { data: parsed.data, ok: true, statusCode: res.status, responseTimeMs, error: null, host };
     } catch (e: unknown) {
       const responseTimeMs = Date.now() - start;
       const name = e instanceof Error ? e.name : "";
       const error = name === "AbortError" ? "timeout" : normalizeErrorMessage(e);
-      last = {
-        data: null,
-        ok: false,
-        statusCode: null,
-        responseTimeMs,
-        error,
-        host,
-      };
+      last = { data: null, ok: false, statusCode: null, responseTimeMs, error, host };
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  return (
-    last ?? {
-      data: null,
-      ok: false,
-      statusCode: null,
-      responseTimeMs: 0,
-      error: "unknown",
-      host: domain,
-    }
-  );
+  return last ?? { data: null, ok: false, statusCode: null, responseTimeMs: 0, error: "unknown", host: domain };
 }
+
+// =============================================================================
+// upsertWpSiteByDomain
+// =============================================================================
 
 export async function upsertWpSiteByDomain(domain: string) {
   const wpSites = adminDb.collection("wpSites");
   const existing = await wpSites.where("domain", "==", domain).limit(1).get();
 
-  const reachability = await checkSiteReachability(domain);
-
-  const wp = await fetchWpSiteData(domain);
+  // Alle checks parallel uitvoeren voor snelheid
+  const [reachability, wp, ssl] = await Promise.all([
+    checkSiteReachability(domain),
+    fetchWpSiteData(domain),
+    checkSsl(domain),
+  ]);
 
   const payload: Record<string, unknown> = {
     domain,
@@ -378,6 +445,7 @@ export async function upsertWpSiteByDomain(domain: string) {
     ok: reachability.ok,
     status: reachability.ok ? "online" : "offline",
     reachability,
+    ssl,
     lastWpFetchOk: wp.ok,
     lastWpFetchError: wp.error,
     lastWpFetchStatusCode: wp.statusCode,
