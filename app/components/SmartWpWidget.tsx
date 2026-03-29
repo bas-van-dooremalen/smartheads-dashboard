@@ -524,6 +524,7 @@ function PaginatedTable({
 export default function SmartWpWidget() {
   const [input, setInput]                   = useState("");
   const [inputError, setInputError]         = useState(false);
+  const [domainQuery, setDomainQuery]       = useState("");
   const [sites, setSites]                   = useState<WpSite[]>([]);
   const [loading, setLoading]               = useState(false);
   const [layout, setLayout]                 = useState<LayoutType>("list");
@@ -594,10 +595,17 @@ export default function SmartWpWidget() {
     setLoading(false);
   }
 
-  const processedSites = useMemo(
-    () => [...sites].sort((a, b) => getSiteName(a).localeCompare(getSiteName(b))),
-    [sites]
-  );
+  const processedSites = useMemo(() => {
+    const normalizedQuery = domainQuery.trim().toLowerCase();
+    const sorted = [...sites].sort((a, b) => getSiteName(a).localeCompare(getSiteName(b)));
+    if (!normalizedQuery) return sorted;
+    return sorted.filter((s) => s.domain.toLowerCase().includes(normalizedQuery));
+  }, [sites, domainQuery]);
+
+  useEffect(() => {
+    if (!selectedSite) return;
+    if (!processedSites.find((s) => s.id === selectedSite.id)) setSelectedSite(null);
+  }, [processedSites, selectedSite]);
 
   return (
     <Card className="col-span-full border-white/5 bg-neutral-900/20">
@@ -675,7 +683,20 @@ export default function SmartWpWidget() {
               </button>
             </div>
             <div className="flex gap-2 flex-1 xl:flex-none min-w-[260px]">
-              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSite()} placeholder="domein.nl" className={`bg-black/40 border rounded-2xl px-5 py-3 text-sm text-[#20d67b] font-mono focus:outline-none transition-all flex-1 ${inputError ? "border-red-500 animate-shake" : "border-white/10 focus:border-[#20d67b]/50"}`} />
+              <div className="flex items-center bg-black/40 rounded-2xl px-4 py-3 border border-white/10 flex-1">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-600 shrink-0">
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  value={domainQuery}
+                  onChange={(e) => setDomainQuery(e.target.value)}
+                  placeholder="Zoek domein..."
+                  className="bg-transparent ml-3 text-sm text-[#20d67b] font-mono w-full focus:outline-none placeholder:text-neutral-600"
+                  aria-label="Zoek op domein"
+                />
+              </div>
+              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSite()} placeholder="domein.nl" className={`bg-black/40 border rounded-2xl px-5 py-3 text-sm text-[#20d67b] font-mono focus:outline-none transition-all w-[180px] ${inputError ? "border-red-500 animate-shake" : "border-white/10 focus:border-[#20d67b]/50"}`} />
               <button onClick={handleAddSite} disabled={loading} className="bg-[#20d67b] text-black px-6 py-3 rounded-2xl text-xs font-black uppercase transition-all hover:shadow-[0_0_20px_rgba(32,214,123,0.3)] disabled:opacity-50">
                 {loading ? "..." : "ADD"}
               </button>
