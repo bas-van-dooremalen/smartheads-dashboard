@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from "next/server";
 const HARDCODED_IPS = [
   "84.84.24.234",  // Kantoor
   "77.60.226.119", // Kantoor 2
+  "2001:4860:7:151f::f7", // Chester thuis (IPv6)
+  "82.170.50.107",        // Chester thuis (IPv4)
   "::1",           // localhost IPv6
   "127.0.0.1",     // localhost IPv4
 ];
