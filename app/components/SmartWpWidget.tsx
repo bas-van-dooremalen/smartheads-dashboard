@@ -525,6 +525,7 @@ export default function SmartWpWidget() {
   const [input, setInput]                   = useState("");
   const [inputError, setInputError]         = useState(false);
   const [domainQuery, setDomainQuery]       = useState("");
+  const [sortOrder, setSortOrder]           = useState<"asc" | "desc">("asc");
   const [sites, setSites]                   = useState<WpSite[]>([]);
   const [loading, setLoading]               = useState(false);
   const [layout, setLayout]                 = useState<LayoutType>("list");
@@ -595,12 +596,36 @@ export default function SmartWpWidget() {
     setLoading(false);
   }
 
+  const collator = useMemo(
+    () => new Intl.Collator("nl", { sensitivity: "base", numeric: true, ignorePunctuation: true }),
+    []
+  );
+
   const processedSites = useMemo(() => {
+    const normalizeName = (value: string) =>
+      value
+        .trim()
+        .replace(/^[^a-z0-9]+/i, "")
+        .toLowerCase();
+
+    const sortKeyFor = (site: WpSite) => {
+      const name = normalizeName(getSiteName(site));
+      const domain = normalizeName(site.domain);
+      return { name, domain };
+    };
+
     const normalizedQuery = domainQuery.trim().toLowerCase();
-    const sorted = [...sites].sort((a, b) => getSiteName(a).localeCompare(getSiteName(b)));
+    const sorted = [...sites].sort((a, b) => {
+      const aKey = sortKeyFor(a);
+      const bKey = sortKeyFor(b);
+      let result = collator.compare(aKey.name, bKey.name);
+      if (result === 0) result = collator.compare(aKey.domain, bKey.domain);
+      if (result === 0) result = collator.compare(a.id, b.id);
+      return sortOrder === "asc" ? result : -result;
+    });
     if (!normalizedQuery) return sorted;
     return sorted.filter((s) => s.domain.toLowerCase().includes(normalizedQuery));
-  }, [sites, domainQuery]);
+  }, [sites, domainQuery, sortOrder]);
 
   useEffect(() => {
     if (!selectedSite) return;
@@ -695,6 +720,28 @@ export default function SmartWpWidget() {
                   className="bg-transparent ml-3 text-sm text-[#20d67b] font-mono w-full focus:outline-none placeholder:text-neutral-600"
                   aria-label="Zoek op domein"
                 />
+              </div>
+              <div className="flex items-center bg-black/40 rounded-2xl p-1.5 border border-white/10">
+                <span className="inline-flex items-center justify-center w-7 h-7 rounded-xl bg-white/5 text-neutral-400">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polygon points="3 4 21 4 14 12 14 20 10 20 10 12 3 4" />
+                  </svg>
+                </span>
+                <button
+                  onClick={() => setSortOrder("asc")}
+                  aria-label="Sorteer A tot Z"
+                  className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${sortOrder === "asc" ? "bg-[#20d67b]/20 text-[#20d67b] border border-[#20d67b]/30" : "text-neutral-500 border border-transparent hover:text-white hover:border-white/10"}`}
+                >
+                  ASC
+                </button>
+                <span className="mx-1 w-px h-5 bg-white/10" aria-hidden="true" />
+                <button
+                  onClick={() => setSortOrder("desc")}
+                  aria-label="Sorteer Z tot A"
+                  className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${sortOrder === "desc" ? "bg-[#20d67b]/20 text-[#20d67b] border border-[#20d67b]/30" : "text-neutral-500 border border-transparent hover:text-white hover:border-white/10"}`}
+                >
+                  DESC
+                </button>
               </div>
               <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSite()} placeholder="domein.nl" className={`bg-black/40 border rounded-2xl px-5 py-3 text-sm text-[#20d67b] font-mono focus:outline-none transition-all w-[180px] ${inputError ? "border-red-500 animate-shake" : "border-white/10 focus:border-[#20d67b]/50"}`} />
               <button onClick={handleAddSite} disabled={loading} className="bg-[#20d67b] text-black px-6 py-3 rounded-2xl text-xs font-black uppercase transition-all hover:shadow-[0_0_20px_rgba(32,214,123,0.3)] disabled:opacity-50">
