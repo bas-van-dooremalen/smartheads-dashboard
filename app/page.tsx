@@ -63,7 +63,9 @@ export default function Home() {
 
   const [now, setNow] = useState(new Date());
   const [mounted, setMounted] = useState(false);
-  const [location] = useState("Nieuwkuijk, NL // 51.6969479° N, 5.1726027° E");
+  const [location] = useState(`Nieuwkuijk, NL
+    51.6969479° N, 5.1726027° E`);
+
 
   useEffect(() => {
     setMounted(true);
@@ -134,7 +136,7 @@ export default function Home() {
               <div className="text-4xl font-black text-white tracking-tighter italic">
                 {now.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </div>
-              <div className="text-[10px] text-neutral-600 font-bold uppercase tracking-widest mt-1 italic">{location}</div>
+              <div className="text-[10px] text-neutral-600 font-bold uppercase tracking-widest mt-1 italic whitespace-pre-line">{location}</div>
             </div>
           </div>
         </header>

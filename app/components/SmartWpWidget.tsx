@@ -13,6 +13,7 @@ import Badge from "./Badge";
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const PAGE_SIZE = 7;
+const GRID_PAGE_SIZE = 10;
 const SLIDE_INTERVAL_MS = 8_500;
 
 // =============================================================================
@@ -358,23 +359,13 @@ function UpdatePanel({ site, onClose }: { site: WpSite; onClose: () => void }) {
 }
 
 // =============================================================================
-// Sub-component: PaginatedTable
+// Hook: useAutoPaginate
 // =============================================================================
 
-function PaginatedTable({
-  sites,
-  onDeleteConfirm,
-  onSelectSite,
-  selectedSiteId,
-}: {
-  sites: WpSite[];
-  onDeleteConfirm: (id: string) => void;
-  onSelectSite: (site: WpSite) => void;
-  selectedSiteId: string | null;
-}) {
-  const totalPages = Math.ceil(sites.length / PAGE_SIZE);
+function useAutoPaginate<T>(items: T[], pageSize: number) {
+  const totalPages   = Math.max(1, Math.ceil(items.length / pageSize));
   const [page, setPage]       = useState(0);
-  const [paused, setPaused]   = useState(true);
+  const [paused, setPaused]   = useState(false);
   const [visible, setVisible] = useState(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pageRef  = useRef(page);
@@ -384,7 +375,7 @@ function PaginatedTable({
   useEffect(() => {
     const t = setTimeout(() => setPage(0), 0);
     return () => clearTimeout(t);
-  }, [sites]);
+  }, [items]);
 
   const fadeTo = useCallback((next: number) => {
     setVisible(false);
@@ -412,7 +403,76 @@ function PaginatedTable({
     }
   };
 
-  const pageSites = sites.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const pageItems = items.slice(page * pageSize, page * pageSize + pageSize);
+
+  return { page, totalPages, paused, setPaused, visible, goTo, pageItems };
+}
+
+// =============================================================================
+// Sub-component: PaginationControls
+// =============================================================================
+
+function PaginationControls({
+  page,
+  totalPages,
+  total,
+  paused,
+  onGoTo,
+  onTogglePaused,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  paused: boolean;
+  onGoTo: (p: number) => void;
+  onTogglePaused: () => void;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-between px-6 py-4 border-t border-white/5">
+      <span className="text-xs font-mono text-neutral-500">Pagina {page + 1} van {totalPages} &nbsp;·&nbsp; {total} sites</span>
+      <div className="flex items-center gap-2">
+        <button onClick={() => onGoTo((page - 1 + totalPages) % totalPages)} className="p-2 rounded-xl bg-white/5 border border-white/10 text-neutral-400 hover:text-white hover:border-white/20 transition-all" aria-label="Vorige pagina">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+        </button>
+        {Array.from({ length: totalPages }).map((_, i) => (
+          <button key={i} onClick={() => onGoTo(i)} className={`w-7 h-7 rounded-xl text-xs font-black transition-all border ${i === page ? "bg-[#20d67b] text-black border-[#20d67b]" : "bg-white/5 text-neutral-500 border-white/5 hover:border-white/20 hover:text-white"}`}>
+            {i + 1}
+          </button>
+        ))}
+        <button onClick={() => onGoTo((page + 1) % totalPages)} className="p-2 rounded-xl bg-white/5 border border-white/10 text-neutral-400 hover:text-white hover:border-white/20 transition-all" aria-label="Volgende pagina">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+        </button>
+        <button
+          onClick={onTogglePaused}
+          aria-label={paused ? "Hervat auto-slide" : "Pauzeer auto-slide"}
+          className={`ml-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[10px] font-mono uppercase tracking-wider transition-all ${paused ? "bg-white/5 border-white/10 text-neutral-500 hover:text-white hover:border-white/20" : "bg-[#20d67b]/10 border-[#20d67b]/20 text-[#20d67b] hover:bg-[#20d67b]/20"}`}
+        >
+          {paused ? <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg> : <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>}
+          {paused ? "paused" : "auto"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Sub-component: PaginatedTable
+// =============================================================================
+
+function PaginatedTable({
+  sites,
+  onDeleteConfirm,
+  onSelectSite,
+  selectedSiteId,
+}: {
+  sites: WpSite[];
+  onDeleteConfirm: (id: string) => void;
+  onSelectSite: (site: WpSite) => void;
+  selectedSiteId: string | null;
+}) {
+  const { page, totalPages, paused, setPaused, visible, goTo, pageItems: pageSites } =
+    useAutoPaginate(sites, PAGE_SIZE);
 
   return (
     <div className="flex flex-col flex-1 min-w-0">
@@ -480,32 +540,131 @@ function PaginatedTable({
         </table>
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-6 py-4 border-t border-white/5">
-          <span className="text-xs font-mono text-neutral-500">Pagina {page + 1} van {totalPages} &nbsp;·&nbsp; {sites.length} sites</span>
-          <div className="flex items-center gap-2">
-            <button onClick={() => goTo((page - 1 + totalPages) % totalPages)} className="p-2 rounded-xl bg-white/5 border border-white/10 text-neutral-400 hover:text-white hover:border-white/20 transition-all" aria-label="Vorige pagina">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-            </button>
-            {Array.from({ length: totalPages }).map((_, i) => (
-              <button key={i} onClick={() => goTo(i)} className={`w-7 h-7 rounded-xl text-xs font-black transition-all border ${i === page ? "bg-[#20d67b] text-black border-[#20d67b]" : "bg-white/5 text-neutral-500 border-white/5 hover:border-white/20 hover:text-white"}`}>
-                {i + 1}
-              </button>
-            ))}
-            <button onClick={() => goTo((page + 1) % totalPages)} className="p-2 rounded-xl bg-white/5 border border-white/10 text-neutral-400 hover:text-white hover:border-white/20 transition-all" aria-label="Volgende pagina">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-            </button>
-            <button
-              onClick={() => setPaused((p) => !p)}
-              aria-label={paused ? "Hervat auto-slide" : "Pauzeer auto-slide"}
-              className={`ml-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[10px] font-mono uppercase tracking-wider transition-all ${paused ? "bg-white/5 border-white/10 text-neutral-500 hover:text-white hover:border-white/20" : "bg-[#20d67b]/10 border-[#20d67b]/20 text-[#20d67b] hover:bg-[#20d67b]/20"}`}
+      <PaginationControls
+        page={page}
+        totalPages={totalPages}
+        total={sites.length}
+        paused={paused}
+        onGoTo={goTo}
+        onTogglePaused={() => setPaused((p) => !p)}
+      />
+    </div>
+  );
+}
+
+// =============================================================================
+// Sub-component: PaginatedGrid
+// =============================================================================
+
+function PaginatedGrid({
+  sites,
+  selectedSite,
+  onSelectSite,
+  onDeleteConfirm,
+}: {
+  sites: WpSite[];
+  selectedSite: WpSite | null;
+  onSelectSite: (site: WpSite) => void;
+  onDeleteConfirm: (id: string) => void;
+}) {
+  const { page, totalPages, paused, setPaused, visible, goTo, pageItems } =
+    useAutoPaginate(sites, GRID_PAGE_SIZE);
+
+  return (
+    <div className="flex flex-col flex-1 min-w-0">
+      <div
+        className={`grid gap-3 transition-all duration-300 ${
+          selectedSite
+            ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4"
+            : "grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+        }`}
+        style={{ opacity: visible ? 1 : 0, transition: "opacity 300ms" }}
+      >
+        {pageItems.map((s) => {
+          const updates = s.lastData?.summary?.total_updates ?? 0;
+          const isSelected = s.id === selectedSite?.id;
+          return (
+            <div
+              key={s.id}
+              className={`group relative bg-neutral-950/40 border transition-all rounded-2xl flex flex-col ${
+                isSelected
+                  ? "border-[#20d67b]/40 bg-neutral-900/40"
+                  : "border-white/5 hover:border-white/10"
+              }`}
             >
-              {paused ? <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg> : <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>}
-              {paused ? "paused" : "auto"}
-            </button>
-          </div>
-        </div>
-      )}
+              {/* Verwijder-knop */}
+              <button
+                onClick={() => onDeleteConfirm(s.id)}
+                aria-label={`Verwijder ${s.domain}`}
+                className="absolute top-3 right-3 text-neutral-600 hover:text-white transition-colors z-20"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+
+              {/* Klikbaar gebied */}
+              <div
+                className="p-4 flex flex-col gap-3 cursor-pointer flex-1"
+                onClick={() => updates > 0 && onSelectSite(s)}
+              >
+                {/* Site naam + status */}
+                <div className="pr-4">
+                  <p className="text-sm font-black text-white italic tracking-tight uppercase leading-tight truncate">
+                    {getSiteName(s)}
+                  </p>
+                  <p className="text-[10px] font-mono text-neutral-600 mt-0.5 truncate">{s.domain}</p>
+                </div>
+
+                {/* Status + updates */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span title={!isOnline(s) ? offlineReason(s) : undefined}>
+                    <Badge color={isOnline(s) ? "custom" : "red"}>{statusLabel(s)}</Badge>
+                  </span>
+                  {updates > 0 && (
+                    <span className="text-[10px] font-black text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded-full">
+                      {updates}
+                    </span>
+                  )}
+                </div>
+
+                {/* Versie info — compact raster */}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">PHP</p>
+                    <VersionCell version={getPhpVersion(s.lastData)} needsUpdate={phpNeedsUpdate(s.lastData)} newVersion={typeof s.lastData?.php === "object" ? s.lastData.php?.recommended : null} />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">Core</p>
+                    <VersionCell version={getCoreVersion(s.lastData)} needsUpdate={coreNeedsUpdate(s.lastData)} newVersion={getCoreNewVersion(s.lastData)} />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">Theme</p>
+                    <VersionCell version={getThemeVersion(s.lastData)} needsUpdate={themeNeedsUpdate(s.lastData)} newVersion={getActiveTheme(s.lastData)?.new_version} />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">Plugins</p>
+                    <PluginCell data={s.lastData} />
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">SSL</p>
+                    <SslCell ssl={s.ssl} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <PaginationControls
+        page={page}
+        totalPages={totalPages}
+        total={sites.length}
+        paused={paused}
+        onGoTo={goTo}
+        onTogglePaused={() => setPaused((p) => !p)}
+      />
     </div>
   );
 }
@@ -521,7 +680,7 @@ export default function SmartWpWidget() {
   const [sortOrder, setSortOrder]           = useState<"asc" | "desc">("asc");
   const [sites, setSites]                   = useState<WpSite[]>([]);
   const [loading, setLoading]               = useState(false);
-  const [layout, setLayout]                 = useState<LayoutType>("list");
+  const [layout, setLayout]                 = useState<LayoutType>("grid");
   const [deleteConfirm, setDeleteConfirm]   = useState<string | null>(null);
   const [lastSync, setLastSync]             = useState<Date | null>(null);
   const [selectedSite, setSelectedSite]     = useState<WpSite | null>(null);
@@ -715,87 +874,12 @@ export default function SmartWpWidget() {
         <div className="flex gap-4">
 
           {/* ── Grid kaarten ─────────────────────────────────────────────── */}
-          <div className={`grid gap-3 flex-1 transition-all duration-300 ${
-            selectedSite
-              ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4"
-              : "grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
-          }`}>
-            {processedSites.map((s) => {
-              const updates = s.lastData?.summary?.total_updates ?? 0;
-              const isSelected = s.id === selectedSite?.id;
-              return (
-                <div
-                  key={s.id}
-                  className={`group relative bg-neutral-950/40 border transition-all rounded-2xl flex flex-col ${
-                    isSelected
-                      ? "border-[#20d67b]/40 bg-neutral-900/40"
-                      : "border-white/5 hover:border-white/10"
-                  }`}
-                >
-                  {/* Verwijder-knop */}
-                  <button
-                    onClick={() => setDeleteConfirm(s.id)}
-                    aria-label={`Verwijder ${s.domain}`}
-                    className="absolute top-3 right-3 text-neutral-600 hover:text-white transition-colors z-20"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-
-                  {/* Klikbaar gebied */}
-                  <div
-                    className="p-4 flex flex-col gap-3 cursor-pointer flex-1"
-                    onClick={() => updates > 0 && setSelectedSite(isSelected ? null : s)}
-                  >
-                    {/* Site naam + status */}
-                    <div className="pr-4">
-                      <p className="text-sm font-black text-white italic tracking-tight uppercase leading-tight truncate">
-                        {getSiteName(s)}
-                      </p>
-                      <p className="text-[10px] font-mono text-neutral-600 mt-0.5 truncate">{s.domain}</p>
-                    </div>
-
-                    {/* Status + updates */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span title={!isOnline(s) ? offlineReason(s) : undefined}>
-                        <Badge color={isOnline(s) ? "custom" : "red"}>{statusLabel(s)}</Badge>
-                      </span>
-                      {updates > 0 && (
-                        <span className="text-[10px] font-black text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded-full">
-                          {updates}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Versie info — compact raster */}
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">PHP</p>
-                        <VersionCell version={getPhpVersion(s.lastData)} needsUpdate={phpNeedsUpdate(s.lastData)} newVersion={typeof s.lastData?.php === "object" ? s.lastData.php?.recommended : null} />
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">Core</p>
-                        <VersionCell version={getCoreVersion(s.lastData)} needsUpdate={coreNeedsUpdate(s.lastData)} newVersion={getCoreNewVersion(s.lastData)} />
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">Theme</p>
-                        <VersionCell version={getThemeVersion(s.lastData)} needsUpdate={themeNeedsUpdate(s.lastData)} newVersion={getActiveTheme(s.lastData)?.new_version} />
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">Plugins</p>
-                        <PluginCell data={s.lastData} />
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-[9px] font-black uppercase tracking-wider text-neutral-600 mb-0.5">SSL</p>
-                        <SslCell ssl={s.ssl} />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <PaginatedGrid
+            sites={processedSites}
+            selectedSite={selectedSite}
+            onSelectSite={(s) => setSelectedSite(selectedSite?.id === s.id ? null : s)}
+            onDeleteConfirm={setDeleteConfirm}
+          />
 
           {/* ── Slide-in update paneel ────────────────────────────────────── */}
           <div className={`transition-all duration-300 overflow-hidden shrink-0 ${selectedSite ? "w-72 opacity-100" : "w-0 opacity-0 pointer-events-none"}`}>
