@@ -11,20 +11,7 @@ const RefreshRequestSchema = z
     z.object({ domain: z.string() }).passthrough(),
   ]);
 
-function isAuthorized(req: Request) {
-  // Local dev convenience: don't block UI refresh locally.
-  if (process.env.NODE_ENV !== "production") return true;
-  const secret = process.env.DASHBOARD_ADMIN_KEY;
-  if (!secret) return false;
-  const auth = req.headers.get("authorization");
-  return auth === `Bearer ${secret}`;
-}
-
 export async function POST(req: Request) {
-  if (!isAuthorized(req)) {
-    return new NextResponse("Unauthorized", { status: 401 });
-  }
-
   let body: unknown;
   try {
     body = await req.json();

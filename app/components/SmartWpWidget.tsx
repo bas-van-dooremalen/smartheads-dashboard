@@ -159,21 +159,14 @@ function getPluginStats(data: WpSiteData | undefined): { updates: number; total:
 // Helpers — netwerk
 // =============================================================================
 
-type RefreshResult = "ok" | "unauthorized" | "error";
+type RefreshResult = "ok" | "error";
 
-async function triggerRefreshDomainWithAuth(
-  domain: string,
-  adminKey: string | null
-): Promise<RefreshResult> {
+async function triggerRefreshDomain(domain: string): Promise<RefreshResult> {
   const res = await fetch("/api/internal/wp-refresh", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(adminKey ? { authorization: `Bearer ${adminKey}` } : {}),
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ domain }),
   });
-  if (res.status === 401) return "unauthorized";
   return res.ok ? "ok" : "error";
 }
 
@@ -531,24 +524,14 @@ export default function SmartWpWidget() {
   const [layout, setLayout]                 = useState<LayoutType>("list");
   const [deleteConfirm, setDeleteConfirm]   = useState<string | null>(null);
   const [lastSync, setLastSync]             = useState<Date | null>(null);
-  const [adminKey, setAdminKey]             = useState<string | null>(null);
-  const [showAdminKeyModal, setShowAdminKeyModal] = useState(false);
   const [selectedSite, setSelectedSite]     = useState<WpSite | null>(null);
-  const pendingRefreshRef = useRef<null | { kind: "all" } | { kind: "domain"; domain: string }>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setDeleteConfirm(null); setShowAdminKeyModal(false); setSelectedSite(null); }
+      if (e.key === "Escape") { setDeleteConfirm(null); setSelectedSite(null); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("wp_refresh_admin_key");
-      if (stored) setAdminKey(stored);
-    } catch { /* Ignore */ }
   }, []);
 
   useEffect(() => {
@@ -571,12 +554,11 @@ export default function SmartWpWidget() {
     setLoading(true);
     try {
       for (const site of sites) {
-        const result = await triggerRefreshDomainWithAuth(site.domain, adminKey);
-        if (result === "unauthorized") { pendingRefreshRef.current = { kind: "all" }; setShowAdminKeyModal(true); break; }
+        await triggerRefreshDomain(site.domain);
         await sleep(150);
       }
     } finally { setLoading(false); }
-  }, [sites, adminKey]);
+  }, [sites]);
 
   useEffect(() => {
     const interval = setInterval(refreshAllSites, REFRESH_INTERVAL_MS);
@@ -589,9 +571,8 @@ export default function SmartWpWidget() {
     const domain = trimmed.replace(/^https?:\/\//, "").split("/")[0]?.replace(/\/$/, "") ?? "";
     if (sites.find((s) => s.domain === domain)) return;
     setLoading(true);
-    const result = await triggerRefreshDomainWithAuth(domain, adminKey);
+    const result = await triggerRefreshDomain(domain);
     if (result === "ok") { setInput(""); }
-    else if (result === "unauthorized") { pendingRefreshRef.current = { kind: "domain", domain }; setShowAdminKeyModal(true); }
     else { setInputError(true); setTimeout(() => setInputError(false), 500); }
     setLoading(false);
   }
@@ -634,34 +615,6 @@ export default function SmartWpWidget() {
 
   return (
     <Card className="col-span-full border-white/5 bg-neutral-900/20">
-
-      {/* ── Modal: Admin Key ───────────────────────────────────────────────── */}
-      {showAdminKeyModal && (
-        <div className="fixed inset-0 z-[30000] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md" onClick={() => setShowAdminKeyModal(false)}>
-          <div className="bg-neutral-950 border border-white/10 p-8 rounded-[2.5rem] max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h4 className="text-xl font-black text-white italic uppercase tracking-tighter mb-2">Admin key nodig</h4>
-            <p className="text-neutral-500 text-xs font-mono mb-6 uppercase tracking-[0.2em] leading-relaxed">Voor refresh/add in productie is een key vereist.</p>
-            <input type="password" value={adminKey ?? ""} onChange={(e) => setAdminKey(e.target.value)} placeholder="DASHBOARD_ADMIN_KEY" className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3 text-sm text-[#20d67b] font-mono focus:outline-none focus:border-[#20d67b]/50 transition-all" />
-            <div className="grid grid-cols-2 gap-4 mt-6">
-              <button onClick={() => setShowAdminKeyModal(false)} className="px-6 py-4 rounded-2xl bg-white/5 text-neutral-400 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all">Abort</button>
-              <button
-                onClick={async () => {
-                  try { if (adminKey) localStorage.setItem("wp_refresh_admin_key", adminKey); } catch { /* Ignore */ }
-                  setShowAdminKeyModal(false);
-                  const pending = pendingRefreshRef.current; pendingRefreshRef.current = null;
-                  if (!pending) return;
-                  setLoading(true);
-                  try {
-                    if (pending.kind === "all") { for (const site of sites) { const r = await triggerRefreshDomainWithAuth(site.domain, adminKey); if (r === "unauthorized") break; await sleep(150); } }
-                    else { await triggerRefreshDomainWithAuth(pending.domain, adminKey); }
-                  } finally { setLoading(false); }
-                }}
-                className="px-6 py-4 rounded-2xl bg-[#20d67b] text-black text-xs font-black uppercase tracking-widest hover:opacity-90 transition-all"
-              >Save</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Modal: Verwijder bevestiging ───────────────────────────────────── */}
       {deleteConfirm && (

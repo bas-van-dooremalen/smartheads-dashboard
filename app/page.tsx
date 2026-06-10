@@ -63,7 +63,7 @@ export default function Home() {
 
   const [now, setNow] = useState(new Date());
   const [mounted, setMounted] = useState(false);
-  const [location] = useState("Breda, NL // 51.589° N");
+  const [location] = useState("Nieuwkuijk, NL // 51.6969479° N, 5.1726027° E");
 
   useEffect(() => {
     setMounted(true);
