@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { db } from "@/app/lib/firebaseClient";
-import { deleteSiteFromFirebase } from "@/app/lib/wpSites";
 import { collection, onSnapshot } from "firebase/firestore";
 import Card from "./Card";
 import Badge from "./Badge";
@@ -686,6 +685,7 @@ export default function SmartWpWidget() {
   const [lastSync, setLastSync]             = useState<Date | null>(null);
   const [selectedSite, setSelectedSite]     = useState<WpSite | null>(null);
   const [reviewError, setReviewError]       = useState<string | null>(null);
+  const [deleteError, setDeleteError]       = useState<string | null>(null);
 
   const reviewedCount = sites.filter((site) => site.manualReview?.checked).length;
   const reviewProgress = sites.length ? Math.round((reviewedCount / sites.length) * 100) : 0;
@@ -702,6 +702,22 @@ export default function SmartWpWidget() {
       setReviewError(null);
     } catch {
       setReviewError("Opslaan van de controle is mislukt. Controleer de serververbinding en probeer opnieuw.");
+    }
+  }
+
+  async function handleDeleteSite(siteId: string) {
+    try {
+      const response = await fetch("/api/site-delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ siteId }),
+      });
+      if (!response.ok) throw new Error("Request failed");
+      setDeleteConfirm(null);
+      setDeleteError(null);
+    } catch {
+      setDeleteConfirm(null);
+      setDeleteError("Verwijderen van de site is mislukt. Probeer het opnieuw.");
     }
   }
 
@@ -826,7 +842,7 @@ export default function SmartWpWidget() {
             <p className="text-neutral-500 text-xs font-mono mb-8 uppercase tracking-[0.2em] leading-relaxed">System purging site from registry...</p>
             <div className="grid grid-cols-2 gap-4">
               <button onClick={() => setDeleteConfirm(null)} className="px-6 py-4 rounded-2xl bg-white/5 text-neutral-400 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all">Abort</button>
-              <button onClick={() => { deleteSiteFromFirebase(deleteConfirm); setDeleteConfirm(null); }} className="px-6 py-4 rounded-2xl bg-red-500 text-white text-xs font-black uppercase tracking-widest hover:bg-red-600 transition-all">Confirm</button>
+              <button onClick={() => void handleDeleteSite(deleteConfirm)} className="px-6 py-4 rounded-2xl bg-red-500 text-white text-xs font-black uppercase tracking-widest hover:bg-red-600 transition-all">Verwijderen</button>
             </div>
           </div>
         </div>
@@ -922,6 +938,7 @@ export default function SmartWpWidget() {
           </div>)}
         </div>
       </section>
+      {deleteError && <p role="alert" className="mb-4 text-xs text-red-400">{deleteError}</p>}
 
       {/* ── Content ────────────────────────────────────────────────────────── */}
       {processedSites.length === 0 ? (
