@@ -81,6 +81,7 @@ interface WpSite {
   };
   lastWpFetchOk?: boolean;
   lastWpFetchError?: string | null;
+  manualReview?: { checked: boolean; formSubmitted: boolean; confirmationReceived: boolean; updatedAt?: number };
 }
 
 type LayoutType = "grid" | "list";
@@ -684,6 +685,48 @@ export default function SmartWpWidget() {
   const [deleteConfirm, setDeleteConfirm]   = useState<string | null>(null);
   const [lastSync, setLastSync]             = useState<Date | null>(null);
   const [selectedSite, setSelectedSite]     = useState<WpSite | null>(null);
+  const [reviewError, setReviewError]       = useState<string | null>(null);
+
+  const reviewedCount = sites.filter((site) => site.manualReview?.checked).length;
+  const reviewProgress = sites.length ? Math.round((reviewedCount / sites.length) * 100) : 0;
+
+  async function updateReview(site: WpSite, field: "checked" | "formSubmitted" | "confirmationReceived", value: boolean) {
+    const review = { checked: false, formSubmitted: false, confirmationReceived: false, ...site.manualReview, [field]: value, updatedAt: Date.now() };
+    try {
+      const response = await fetch("/api/site-review", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ siteId: site.id, review }),
+      });
+      if (!response.ok) throw new Error("Request failed");
+      setReviewError(null);
+    } catch {
+      setReviewError("Opslaan van de controle is mislukt. Controleer de serververbinding en probeer opnieuw.");
+    }
+  }
+
+  function exportSites() {
+    const quote = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const rows = [
+      ["Domein", "PHP versie", "WordPress core versie", "Plugins", "Gecontroleerd", "Formulier ingevuld", "Ontvangstbevestiging"],
+      ...sites.map((site) => [
+        site.domain,
+        getPhpVersion(site.lastData),
+        getCoreVersion(site.lastData),
+        (site.lastData?.plugins ?? []).map((plugin) => `${plugin.name} (${plugin.version ?? "onbekend"})`).join(" | "),
+        site.manualReview?.checked ? "Ja" : "Nee",
+        site.manualReview?.formSubmitted ? "Ja" : "Nee",
+        site.manualReview?.confirmationReceived ? "Ja" : "Nee",
+      ]),
+    ];
+    const csv = `\uFEFF${rows.map((row) => row.map(quote).join(";")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `site-controle-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -800,6 +843,7 @@ export default function SmartWpWidget() {
             </h2>
           </div>
           <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto">
+            <button onClick={exportSites} className="px-4 py-2 rounded-2xl bg-[#20d67b]/10 border border-[#20d67b]/20 text-[#20d67b] text-xs font-black uppercase tracking-wider hover:bg-[#20d67b]/20 transition-all">Exporteer Excel</button>
             {lastSync && <span className="text-xs text-neutral-500 ml-2">Last sync: {lastSync.toLocaleTimeString()}</span>}
             <button onClick={refreshAllSites} disabled={loading} className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/5 text-neutral-400 text-xs font-black uppercase tracking-wider hover:border-white/20 hover:text-white transition-all disabled:opacity-40">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={loading ? "animate-spin" : ""}>
@@ -863,6 +907,21 @@ export default function SmartWpWidget() {
           </div>
         </div>
       </div>
+
+      <section className="mb-8 rounded-3xl border border-white/10 bg-black/30 p-5" aria-label="Handmatige sitecontrole">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div><h3 className="text-sm font-black uppercase tracking-widest text-white">Handmatige controle</h3><p className="mt-1 text-xs text-neutral-500">Vink per site de controle, het formulier en de ontvangstbevestiging af.</p></div>
+          <span className="font-mono text-xs text-[#20d67b]">{reviewedCount}/{sites.length} gecontroleerd · {reviewProgress}%</span>
+        </div>
+        <div className="mb-4 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[#20d67b] transition-all" style={{ width: `${reviewProgress}%` }} /></div>
+        {reviewError && <p role="alert" className="mb-3 text-xs text-red-400">{reviewError}</p>}
+        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+          {processedSites.map((site) => <div key={site.id} className="grid grid-cols-1 gap-3 rounded-2xl border border-white/5 bg-white/[0.02] p-3 sm:grid-cols-[minmax(120px,1fr)_repeat(3,auto)] sm:items-center">
+            <span className="truncate text-xs font-mono text-neutral-300" title={site.domain}>{site.domain}</span>
+            {([ ["checked", "Gecontroleerd"], ["formSubmitted", "Formulier ingevuld"], ["confirmationReceived", "Bevestiging ontvangen"] ] as const).map(([field, label]) => <label key={field} className="flex cursor-pointer items-center gap-2 text-[11px] text-neutral-400"><input type="checkbox" checked={site.manualReview?.[field] ?? false} onChange={(event) => void updateReview(site, field, event.target.checked)} className="accent-[#20d67b]" />{label}</label>)}
+          </div>)}
+        </div>
+      </section>
 
       {/* ── Content ────────────────────────────────────────────────────────── */}
       {processedSites.length === 0 ? (

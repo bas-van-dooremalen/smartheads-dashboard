@@ -1,0 +1,531 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-21T20:59:34.704Z",
+  "generatedAtEpochMs": 1792616374704,
+  "generator": {
+    "name": "Code Janitor",
+    "feature": "workspace-memory"
+  },
+  "handoffGuidance": [
+    "Read graphify-out/GRAPH_REPORT.md first for architecture and dependency questions.",
+    "Use workspace.json for machine-readable repo context before scanning broad parts of the repository.",
+    "Use graphify-out/WORKSPACE_MEMORY.md and workspacememory.md for human-readable handoff notes, recent changes, and Git-aware status."
+  ],
+  "workspace": {
+    "name": "smartdashboard",
+    "root": "c:\\Projects\\NextJS\\smartdashboard",
+    "activeFile": "middleware.ts",
+    "refreshReason": "tracked-change",
+    "outputFiles": {
+      "markdown": "graphify-out/WORKSPACE_MEMORY.md",
+      "markdownMirror": "workspacememory.md",
+      "structuredManifest": "workspace.json"
+    },
+    "suggestedStartingPoints": [
+      "middleware.ts",
+      ".gitignore",
+      "README.md",
+      "package-lock.json",
+      "package.json",
+      "tsconfig.json"
+    ],
+    "stats": {
+      "totalFiles": 49,
+      "topLevelAreas": [
+        {
+          "name": "app",
+          "count": 27
+        },
+        {
+          "name": "[root]",
+          "count": 16
+        },
+        {
+          "name": "public",
+          "count": 5
+        },
+        {
+          "name": "smartheads-api",
+          "count": 1
+        }
+      ],
+      "primaryFileTypes": [
+        {
+          "name": ".ts",
+          "count": 16
+        },
+        {
+          "name": ".tsx",
+          "count": 11
+        },
+        {
+          "name": ".json",
+          "count": 5
+        },
+        {
+          "name": ".svg",
+          "count": 5
+        },
+        {
+          "name": ".md",
+          "count": 2
+        },
+        {
+          "name": ".mjs",
+          "count": 2
+        },
+        {
+          "name": ".css",
+          "count": 1
+        },
+        {
+          "name": ".ico",
+          "count": 1
+        }
+      ],
+      "keyFiles": [
+        ".gitignore",
+        "README.md",
+        "package-lock.json",
+        "package.json",
+        "tsconfig.json"
+      ],
+      "fileInventory": [
+        {
+          "path": ".env.local",
+          "topLevelArea": "[root]",
+          "extension": ".local",
+          "isKeyFile": false
+        },
+        {
+          "path": ".env.production",
+          "topLevelArea": "[root]",
+          "extension": ".production",
+          "isKeyFile": false
+        },
+        {
+          "path": ".gitignore",
+          "topLevelArea": "[root]",
+          "extension": "[no extension]",
+          "isKeyFile": true
+        },
+        {
+          "path": "app/api/internal/wp-check/route.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/api/internal/wp-refresh/route.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/api/quote/route.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/api/site-review/route.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/api/test-admin/route.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/api/test-env/route.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/api/weather/route.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/api/wp-proxy/route.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/AnalogClock.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/Badge.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/Card.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/CoffeeWidget.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/CustomCursor.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/QuoteWidget.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/SmartWpWidget.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/StaticModal.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/components/WeatherWidget.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/favicon.ico",
+          "topLevelArea": "app",
+          "extension": ".ico",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/globals.css",
+          "topLevelArea": "app",
+          "extension": ".css",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/layout.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/lib/firebaseAdmin.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/lib/firebaseClient.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/lib/server/wpDashboardRefresh.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/lib/wpDashboardRefresh.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/lib/wpSites.ts",
+          "topLevelArea": "app",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/page.tsx",
+          "topLevelArea": "app",
+          "extension": ".tsx",
+          "isKeyFile": false
+        },
+        {
+          "path": "app/tokens/teamleader.json",
+          "topLevelArea": "app",
+          "extension": ".json",
+          "isKeyFile": false
+        },
+        {
+          "path": "eslint.config.mjs",
+          "topLevelArea": "[root]",
+          "extension": ".mjs",
+          "isKeyFile": false
+        },
+        {
+          "path": "middleware.ts",
+          "topLevelArea": "[root]",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "next-env.d.ts",
+          "topLevelArea": "[root]",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "next.config.ts",
+          "topLevelArea": "[root]",
+          "extension": ".ts",
+          "isKeyFile": false
+        },
+        {
+          "path": "package-lock.json",
+          "topLevelArea": "[root]",
+          "extension": ".json",
+          "isKeyFile": true
+        },
+        {
+          "path": "package.json",
+          "topLevelArea": "[root]",
+          "extension": ".json",
+          "isKeyFile": true
+        },
+        {
+          "path": "postcss.config.mjs",
+          "topLevelArea": "[root]",
+          "extension": ".mjs",
+          "isKeyFile": false
+        },
+        {
+          "path": "public/file.svg",
+          "topLevelArea": "public",
+          "extension": ".svg",
+          "isKeyFile": false
+        },
+        {
+          "path": "public/globe.svg",
+          "topLevelArea": "public",
+          "extension": ".svg",
+          "isKeyFile": false
+        },
+        {
+          "path": "public/next.svg",
+          "topLevelArea": "public",
+          "extension": ".svg",
+          "isKeyFile": false
+        },
+        {
+          "path": "public/vercel.svg",
+          "topLevelArea": "public",
+          "extension": ".svg",
+          "isKeyFile": false
+        },
+        {
+          "path": "public/window.svg",
+          "topLevelArea": "public",
+          "extension": ".svg",
+          "isKeyFile": false
+        },
+        {
+          "path": "README.md",
+          "topLevelArea": "[root]",
+          "extension": ".md",
+          "isKeyFile": true
+        },
+        {
+          "path": "smartheads-api.zip",
+          "topLevelArea": "[root]",
+          "extension": ".zip",
+          "isKeyFile": false
+        },
+        {
+          "path": "smartheads-api/smartheads-api.php",
+          "topLevelArea": "smartheads-api",
+          "extension": ".php",
+          "isKeyFile": false
+        },
+        {
+          "path": "tsconfig.json",
+          "topLevelArea": "[root]",
+          "extension": ".json",
+          "isKeyFile": true
+        },
+        {
+          "path": "tsconfig.tsbuildinfo",
+          "topLevelArea": "[root]",
+          "extension": ".tsbuildinfo",
+          "isKeyFile": false
+        },
+        {
+          "path": "workspace.json",
+          "topLevelArea": "[root]",
+          "extension": ".json",
+          "isKeyFile": false
+        },
+        {
+          "path": "workspacememory.md",
+          "topLevelArea": "[root]",
+          "extension": ".md",
+          "isKeyFile": false
+        }
+      ]
+    }
+  },
+  "package": {
+    "available": true,
+    "name": "smartdashboard",
+    "displayName": "",
+    "version": "0.1.0",
+    "description": "",
+    "license": "",
+    "homepage": "",
+    "packageManager": "",
+    "main": "",
+    "repository": {
+      "type": "",
+      "url": ""
+    },
+    "bugsUrl": "",
+    "engines": {},
+    "keywords": [],
+    "scripts": {
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start",
+      "lint": "eslint"
+    },
+    "dependencies": {
+      "cheerio": "^1.2.0",
+      "firebase": "^12.10.0",
+      "firebase-admin": "^13.7.0",
+      "framer-motion": "^12.35.0",
+      "jsdom": "^28.1.0",
+      "p-limit": "^3.1.0",
+      "next": "16.1.6",
+      "react": "19.2.3",
+      "react-dom": "19.2.3",
+      "zod": "^4.3.6"
+    },
+    "devDependencies": {
+      "@tailwindcss/postcss": "^4",
+      "@types/node": "^20",
+      "@types/react": "^19",
+      "@types/react-dom": "^19",
+      "eslint": "^9",
+      "eslint-config-next": "16.1.6",
+      "tailwindcss": "^4",
+      "typescript": "^5"
+    }
+  },
+  "currentStack": {
+    "lastActivityAt": "2026-10-21T20:59:32.275Z",
+    "trackedChangeCount": 1,
+    "trackedFileSnapshotCount": 1,
+    "changeTypeCounts": {
+      "save": 1,
+      "create": 0,
+      "delete": 0,
+      "rename": 0
+    }
+  },
+  "trackedSnapshots": [
+    {
+      "filePath": "middleware.ts",
+      "updatedAt": 1792616372275,
+      "lineCount": 78,
+      "charCount": 2458,
+      "hash": "922b390a9add",
+      "preview": "import { NextRequest, NextResponse } from \"next/server\"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva..."
+    }
+  ],
+  "recentChanges": [
+    {
+      "type": "save",
+      "path": "middleware.ts",
+      "toPath": "",
+      "summary": "Line 12: replaced 67 lines with 66 lines.",
+      "recordedAt": "2026-10-21T20:59:32.275Z",
+      "recordedAtEpochMs": 1792616372275,
+      "before": {
+        "kind": "text",
+        "lineCount": 79,
+        "charCount": 2504,
+        "hash": "870037bcb05f",
+        "preview": "import { NextRequest, NextResponse } from \"next/server\"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva...",
+        "updatedAt": 1792616372275
+      },
+      "after": {
+        "kind": "text",
+        "lineCount": 78,
+        "charCount": 2458,
+        "hash": "922b390a9add",
+        "preview": "import { NextRequest, NextResponse } from \"next/server\"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva...",
+        "updatedAt": 1792616372275
+      },
+      "diff": {
+        "lineStart": 12,
+        "removedLines": 67,
+        "addedLines": 66,
+        "summary": "Line 12: replaced 67 lines with 66 lines.",
+        "beforeFragment": "\"84.84.24.234\",  // Kantoor / \"77.60.226.119\", // Kantoor 2 / \"2001:4860:7:151f::f7\", // Chester thuis (IPv6) / \"82.170.50.107\",        // Chester thuis (IPv4) / \"::1\",...",
+        "afterFragment": "\"84.84.24.234\",  // Kantoor / \"77.60.226.119\", // Kantoor 2 / \"77.174.176.247\", // Chester thuis (IPv4) / \"::1\",           // localhost IPv6 / \"127.0.0.1\",     // localhost IPv4..."
+      }
+    }
+  ],
+  "hotFiles": [
+    {
+      "filePath": "middleware.ts",
+      "count": 1
+    }
+  ],
+  "git": {
+    "available": true,
+    "branch": "main",
+    "headSummary": "2026-06-10 46259d4 add enter to location, grid view default, and auto rotate added",
+    "statusSummary": "2 modifieds, 4 untrackeds",
+    "changedFileCount": 6,
+    "statusLines": [
+      "M app/components/SmartWpWidget.tsx",
+      "M middleware.ts",
+      "?? app/api/site-review/",
+      "?? graphify-out/",
+      "?? workspace.json",
+      "?? workspacememory.md"
+    ],
+    "error": ""
+  },
+  "github": {
+    "available": true,
+    "summary": "GitHub Repository: bas-van-dooremalen/smartheads-dashboard\nVisibility: public | Default branch: main\nStars: 0 | Forks: 0 | Open issues: 0\n\nLatest commit on main:\n- 46259d4 by Bas van Dooremalen on 2026-06-10\n  add enter to location, grid view default, and auto rotate added\n\nURL: https://github.com/bas-van-dooremalen/smartheads-dashboard"
+  },
+  "graphify": {
+    "reportAvailable": false,
+    "graphAvailable": false,
+    "reportPath": "",
+    "graphPath": "",
+    "highlights": ""
+  },
+  "projectPlanner": null,
+  "agentNotes": [
+    "For recent repo changes, check recentChanges, trackedSnapshots, hotFiles, and git.",
+    "For architecture questions, combine graphify highlights with the Graphify report.",
+    "For machine-readable repo context, prefer this workspace.json manifest before broad repo scans."
+  ]
+}
