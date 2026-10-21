@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T20:59:34.704Z",
-  "generatedAtEpochMs": 1792616374704,
+  "generatedAt": "2026-10-21T21:01:54.395Z",
+  "generatedAtEpochMs": 1792616514395,
   "generator": {
     "name": "Code Janitor",
     "feature": "workspace-memory"
@@ -435,11 +435,11 @@
     }
   },
   "currentStack": {
-    "lastActivityAt": "2026-10-21T20:59:32.275Z",
-    "trackedChangeCount": 1,
+    "lastActivityAt": "2026-10-21T21:01:52.590Z",
+    "trackedChangeCount": 2,
     "trackedFileSnapshotCount": 1,
     "changeTypeCounts": {
-      "save": 1,
+      "save": 2,
       "create": 0,
       "delete": 0,
       "rename": 0
@@ -448,14 +448,46 @@
   "trackedSnapshots": [
     {
       "filePath": "middleware.ts",
-      "updatedAt": 1792616372275,
+      "updatedAt": 1792616512590,
       "lineCount": 78,
-      "charCount": 2458,
-      "hash": "922b390a9add",
+      "charCount": 2460,
+      "hash": "5cabd60d2825",
       "preview": "import { NextRequest, NextResponse } from \"next/server\"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva..."
     }
   ],
   "recentChanges": [
+    {
+      "type": "save",
+      "path": "middleware.ts",
+      "toPath": "",
+      "summary": "Line 13: replaced 1 line with 1 line.",
+      "recordedAt": "2026-10-21T21:01:52.590Z",
+      "recordedAtEpochMs": 1792616512590,
+      "before": {
+        "kind": "text",
+        "lineCount": 78,
+        "charCount": 2458,
+        "hash": "922b390a9add",
+        "preview": "import { NextRequest, NextResponse } from \"next/server\"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva...",
+        "updatedAt": 1792616512590
+      },
+      "after": {
+        "kind": "text",
+        "lineCount": 78,
+        "charCount": 2460,
+        "hash": "5cabd60d2825",
+        "preview": "import { NextRequest, NextResponse } from \"next/server\"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva...",
+        "updatedAt": 1792616512590
+      },
+      "diff": {
+        "lineStart": 13,
+        "removedLines": 1,
+        "addedLines": 1,
+        "summary": "Line 13: replaced 1 line with 1 line.",
+        "beforeFragment": "Kantoor",
+        "afterFragment": "Bas thuis"
+      }
+    },
     {
       "type": "save",
       "path": "middleware.ts",
@@ -492,22 +524,17 @@
   "hotFiles": [
     {
       "filePath": "middleware.ts",
-      "count": 1
+      "count": 2
     }
   ],
   "git": {
     "available": true,
     "branch": "main",
-    "headSummary": "2026-06-10 46259d4 add enter to location, grid view default, and auto rotate added",
-    "statusSummary": "2 modifieds, 4 untrackeds",
-    "changedFileCount": 6,
+    "headSummary": "2026-10-21 3c199b2 Added update to export table and overview to check websites after PHP patch update",
+    "statusSummary": "1 modified",
+    "changedFileCount": 1,
     "statusLines": [
-      "M app/components/SmartWpWidget.tsx",
-      "M middleware.ts",
-      "?? app/api/site-review/",
-      "?? graphify-out/",
-      "?? workspace.json",
-      "?? workspacememory.md"
+      "M middleware.ts"
     ],
     "error": ""
   },

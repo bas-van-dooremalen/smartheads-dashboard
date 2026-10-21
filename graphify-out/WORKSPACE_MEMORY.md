@@ -1,6 +1,6 @@
 # Workspace Memory
 This file is maintained automatically by Code Janitor so Claude, Codex, Bob, and any other AI agent can reuse repo context without rescanning everything from scratch.
-Generated: 2026-10-21T20:59:34.704Z
+Generated: 2026-10-21T21:01:54.395Z
 Workspace: smartdashboard
 Workspace root: c:\Projects\NextJS\smartdashboard
 Refresh reason: tracked-change
@@ -16,10 +16,10 @@ Structured manifest: workspace.json
 - Audience: any AI agent working in this repository can treat this file as the current handoff ledger.
 - Graphify report: not available yet
 - Graphify graph: not available yet
-- Last activity: 2026-10-21T20:59:32.275Z
+- Last activity: 2026-10-21T21:01:52.590Z
 ## Workspace Focus
 - Active file in focus: middleware.ts
-- Hottest files right now: middleware.ts (1)
+- Hottest files right now: middleware.ts (2)
 - Suggested starting points: middleware.ts, .gitignore, README.md, package-lock.json, package.json, tsconfig.json
 ## Current Workspace
 - Active file: middleware.ts
@@ -34,16 +34,23 @@ Structured manifest: workspace.json
 - Runtime dependencies: cheerio, firebase, firebase-admin, framer-motion, jsdom, p-limit, next, react, react-dom, zod
 - Dev dependencies: @tailwindcss/postcss, @types/node, @types/react, @types/react-dom, eslint, eslint-config-next, tailwindcss, typescript
 ## Current Stack
-- Logged change events: 1
-- Change mix: save (1)
+- Logged change events: 2
+- Change mix: save (2)
 - Remembered file snapshots: 1
-- Working tree summary: 2 modifieds, 4 untrackeds
+- Working tree summary: 1 modified
 ## Tracked Snapshots
-- middleware.ts | 78 lines | 2458 chars | hash 922b390a9add
-  Last snapshot: 2026-10-21T20:59:32.275Z
+- middleware.ts | 78 lines | 2460 chars | hash 5cabd60d2825
+  Last snapshot: 2026-10-21T21:01:52.590Z
   Preview: "import { NextRequest, NextResponse } from "next/server"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva..."
 
 ## Recent Changes
+### 2026-10-21T21:01:52.590Z | saved | middleware.ts
+- Summary: Line 13: replaced 1 line with 1 line.
+- Before: 78 lines | 2,458 chars | hash 922b390a9add | preview: "import { NextRequest, NextResponse } from "next/server"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva..."
+- After: 78 lines | 2,460 chars | hash 5cabd60d2825 | preview: "import { NextRequest, NextResponse } from "next/server"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva..."
+- Previous fragment: "Kantoor"
+- Current fragment: "Bas thuis"
+
 ### 2026-10-21T20:59:32.275Z | saved | middleware.ts
 - Summary: Line 12: replaced 67 lines with 66 lines.
 - Before: 79 lines | 2,504 chars | hash 870037bcb05f | preview: "import { NextRequest, NextResponse } from "next/server"; / // ============================================================================= / // IP Allowlist / // / // Voeg extra IPs toe via de ALLOWED_IPS omgevingsva..."
@@ -53,18 +60,13 @@ Structured manifest: workspace.json
 
 
 ## Hot Files
-- middleware.ts (1 tracked changes)
+- middleware.ts (2 tracked changes)
 
 ## Git Snapshot
 - Branch: main
-- HEAD: 2026-06-10 46259d4 add enter to location, grid view default, and auto rotate added
-- Working tree summary: 2 modifieds, 4 untrackeds
-- M app/components/SmartWpWidget.tsx
+- HEAD: 2026-10-21 3c199b2 Added update to export table and overview to check websites after PHP patch update
+- Working tree summary: 1 modified
 - M middleware.ts
-- ?? app/api/site-review/
-- ?? graphify-out/
-- ?? workspace.json
-- ?? workspacememory.md
 
 ## GitHub Snapshot
 GitHub Repository: bas-van-dooremalen/smartheads-dashboard

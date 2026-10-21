@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
 
-import CustomCursor from "./components/CustomCursor";
 import Card from "./components/Card";
 import CoffeeWidget from "./components/CoffeeWidget";
 import SmartWpWidget from "./components/SmartWpWidget";
@@ -82,8 +81,6 @@ export default function Home() {
       animate="visible"
       className="min-h-screen bg-[#050505] text-neutral-200 selection:bg-[#20d67b] selection:text-black relative overflow-x-hidden"
     >
-      <CustomCursor />
-
       <div className="relative w-full px-4 py-8 lg:px-8">
 
         {/* ── Header ───────────────────────────────────────────────────────── */}
@@ -154,7 +151,6 @@ export default function Home() {
       </div>
 
       <style jsx global>{`
-        * { cursor: none !important; }
         body { background-color: #050505; overflow-x: hidden; }
         .animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
         @keyframes shake {
