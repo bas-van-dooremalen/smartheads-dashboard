@@ -14,7 +14,7 @@ import Badge from "./Badge";
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const PAGE_SIZE = 7;
 const GRID_PAGE_SIZE = 10;
-const SLIDE_INTERVAL_MS = 8_500;
+const SLIDE_INTERVAL_MS = 60_000;
 
 // =============================================================================
 // Types
@@ -366,7 +366,7 @@ function UpdatePanel({ site, onClose }: { site: WpSite; onClose: () => void }) {
 function useAutoPaginate<T>(items: T[], pageSize: number) {
   const totalPages   = Math.max(1, Math.ceil(items.length / pageSize));
   const [page, setPage]       = useState(0);
-  const [paused, setPaused]   = useState(false);
+  const [paused, setPaused]   = useState(true);
   const [visible, setVisible] = useState(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pageRef  = useRef(page);
