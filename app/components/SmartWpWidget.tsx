@@ -373,9 +373,8 @@ function useAutoPaginate<T>(items: T[], pageSize: number) {
   useEffect(() => { pageRef.current = page; }, [page]);
 
   useEffect(() => {
-    const t = setTimeout(() => setPage(0), 0);
-    return () => clearTimeout(t);
-  }, [items]);
+    if (page >= totalPages) setPage(totalPages - 1);
+  }, [page, totalPages]);
 
   const fadeTo = useCallback((next: number) => {
     setVisible(false);
